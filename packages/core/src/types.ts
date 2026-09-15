@@ -1,4 +1,16 @@
-export type SourceLanguage = "typescript" | "tsx" | "javascript" | "jsx" | "python" | "go" | null;
+export type SourceLanguage =
+  | "typescript"
+  | "tsx"
+  | "javascript"
+  | "jsx"
+  | "python"
+  | "go"
+  | "vue"
+  | "svelte"
+  | "json"
+  | "html"
+  | "css"
+  | null;
 
 export type NodeKind =
   | "file"

@@ -21,7 +21,7 @@ describe("scanner", () => {
     expect(languageForPath("src/module.mjs")).toBe("javascript");
     expect(languageForPath("src/config.cjs")).toBe("javascript");
     expect(languageForPath("README.md")).toBeNull();
-    expect(languageForPath("package.json")).toBeNull();
+    expect(languageForPath("package.json")).toBe("json");
   });
 
   it("identifies generated file paths", () => {

@@ -31,6 +31,11 @@ const LANGUAGE_BY_EXTENSION: Record<string, Exclude<SourceLanguage, null>> = {
   ".cjs": "javascript",
   ".py": "python",
   ".go": "go",
+  ".vue": "vue",
+  ".svelte": "svelte",
+  ".json": "json",
+  ".html": "html",
+  ".css": "css",
 };
 
 export async function findGitRoot(startDir: string): Promise<string> {
