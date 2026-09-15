@@ -27,19 +27,26 @@ type ParserConstructor = new () => SyntaxParser;
 type LanguageModule = { typescript: unknown; tsx: unknown };
 
 const require = createRequire(import.meta.url);
-const Parser = require("tree-sitter") as ParserConstructor;
-const JavaScript = require("tree-sitter-javascript") as unknown;
-const TypeScript = require("tree-sitter-typescript") as LanguageModule;
+let Parser: ParserConstructor | null = null;
+let JavaScript: unknown = null;
+let TypeScript: LanguageModule | null = null;
+
+try {
+  Parser = require("tree-sitter") as ParserConstructor;
+  JavaScript = require("tree-sitter-javascript") as unknown;
+  TypeScript = require("tree-sitter-typescript") as LanguageModule;
+} catch {
+  // Tree-sitter optional native binary is missing; fallback regex parser will be used
+}
 
 export function parseSource(file: RepositoryFile, source: string): ParsedFile {
-  if (file.language === "python" || file.language === "go") {
+  if (file.language === "python" || file.language === "go" || !Parser) {
     return parseSourceRegex(file, source);
   }
 
-  const parser = new Parser();
-  parser.setLanguage(languageForFile(file));
-
   try {
+    const parser = new Parser();
+    parser.setLanguage(languageForFile(file));
     const tree = parser.parse(source);
     const symbols: GraphNode[] = [];
     const edges: GraphEdge[] = [];
@@ -112,17 +119,15 @@ export function parseSource(file: RepositoryFile, source: string): ParsedFile {
       imports: deduplicateImports(imports),
       parseError: rootHasError ? "Syntax errors detected" : null,
     };
-  } catch (error) {
-    return {
-      symbols: [],
-      edges: [],
-      imports: [],
-      parseError: error instanceof Error ? error.message : String(error),
-    };
+  } catch {
+    return parseSourceRegex(file, source);
   }
 }
 
 function languageForFile(file: RepositoryFile): unknown {
+  if (!TypeScript || !JavaScript) {
+    throw new Error("Tree-sitter module not loaded");
+  }
   switch (file.language) {
     case "typescript":
       return TypeScript.typescript;
@@ -385,7 +390,16 @@ const GO_PATTERNS: Array<{ regex: RegExp; kind: GraphNode["kind"] }> = [
   { regex: /^var\s+([A-Za-z_]\w*)\s+/gm, kind: "variable" },
 ];
 
+const JS_TS_PATTERNS: Array<{ regex: RegExp; kind: GraphNode["kind"] }> = [
+  { regex: /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm, kind: "function" },
+  { regex: /^(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/gm, kind: "class" },
+  { regex: /^(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/gm, kind: "interface" },
+  { regex: /^(?:export\s+)?type\s+([A-Za-z_$][\w$]*)/gm, kind: "type" },
+  { regex: /^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/gm, kind: "variable" },
+];
+
 const GO_IMPORT_PATTERN = /^\s*"([^"]+)"/gm;
+const JS_TS_IMPORT_PATTERN = /\bfrom\s+["']([^"']+)["']/g;
 
 function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
   const symbols: GraphNode[] = [];
@@ -394,7 +408,8 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
   const fileId = fileNodeId(file.path);
 
   const isPython = file.language === "python";
-  const patterns = isPython ? PYTHON_PATTERNS : GO_PATTERNS;
+  const isGo = file.language === "go";
+  const patterns = isPython ? PYTHON_PATTERNS : isGo ? GO_PATTERNS : JS_TS_PATTERNS;
 
   // Extract symbols
   for (const { regex, kind } of patterns) {
@@ -443,7 +458,7 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
         }
       }
     }
-  } else {
+  } else if (isGo) {
     // Go: parse import block or single import lines
     const importBlockMatch = source.match(/import\s*\(([\s\S]*?)\)/);
     if (importBlockMatch?.[1]) {
@@ -464,6 +479,17 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
     const singleImport = /^\s*import\s+"([^"]+)"/gm;
     let match: RegExpExecArray | null;
     while ((match = singleImport.exec(source)) !== null) {
+      const specifier = match[1];
+      if (specifier) {
+        const lineNumber = source.substring(0, match.index).split("\n").length;
+        imports.push({ specifier, line: lineNumber });
+      }
+    }
+  } else {
+    // JS/TS import parsing
+    const pattern = new RegExp(JS_TS_IMPORT_PATTERN.source, JS_TS_IMPORT_PATTERN.flags);
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source)) !== null) {
       const specifier = match[1];
       if (specifier) {
         const lineNumber = source.substring(0, match.index).split("\n").length;

@@ -18,7 +18,9 @@
     "dist"
   ],
   "dependencies": {
-    "ignore": "^7.0.9",
+    "ignore": "^7.0.9"
+  },
+  "optionalDependencies": {
     "tree-sitter": "^0.25.1",
     "tree-sitter-javascript": "^0.25.0",
     "tree-sitter-typescript": "^0.23.2"
