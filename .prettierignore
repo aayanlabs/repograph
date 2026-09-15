@@ -1,5 +1,6 @@
 .agents/
 .cache/
+.conversation/
 .local/
 .upm/
 attached_assets/

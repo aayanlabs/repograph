@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { CORE_PACKAGE_NAME } from "./index.js";
+import { fileNodeId } from "./index.js";
 
 describe("core package", () => {
-  it("exposes a stable package boundary", () => {
-    expect(CORE_PACKAGE_NAME).toBe("@repograph/core");
+  it("creates stable file node identifiers", () => {
+    expect(fileNodeId("src/index.ts")).toBe(fileNodeId("src/index.ts"));
+    expect(fileNodeId("src/index.ts")).not.toBe(fileNodeId("src/other.ts"));
   });
 });

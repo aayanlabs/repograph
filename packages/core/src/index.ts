@@ -1,7 +1,10 @@
-/**
- * Public entrypoint for RepoGraph's core package.
- *
- * Phase 1 establishes the package boundary. Indexing and graph APIs are
- * intentionally introduced in later phases.
- */
-export const CORE_PACKAGE_NAME = "@repograph/core";
+export * from "./ids.js";
+export * from "./indexer.js";
+export * from "./parser.js";
+export * from "./query.js";
+export * from "./retrieval.js";
+export * from "./scanner.js";
+export * from "./storage.js";
+export * from "./types.js";
+export * from "./watcher.js";
+export * from "./visualizer.js";

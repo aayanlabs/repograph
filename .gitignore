@@ -9,3 +9,6 @@ coverage/
 
 # RepoGraph's local state
 .repograph/
+*.db
+*.db-wal
+*.db-shm

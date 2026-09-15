@@ -2,11 +2,12 @@
   "name": "repograph",
   "version": "0.1.0",
   "private": true,
-  "description": "A local-first semantic code graph for AI coding agents.",
+  "description": "RepoGraph by aayanlabs — A local-first semantic code graph for AI coding agents.",
+  "author": "aayanlabs <mdaayanmalik9291@gmail.com>",
   "license": "MIT",
   "packageManager": "pnpm@10.26.1",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.5.0"
   },
   "scripts": {
     "build": "pnpm --recursive --if-present build",

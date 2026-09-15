@@ -2,13 +2,17 @@
   "name": "@repograph/cli",
   "version": "0.1.0",
   "private": true,
-  "description": "Command-line interface for RepoGraph.",
+  "description": "RepoGraph by aayanlabs — Command-line interface.",
+  "author": "aayanlabs <mdaayanmalik9291@gmail.com>",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "repograph": "dist/index.js"
   },
   "dependencies": {
-    "@repograph/core": "workspace:*"
+    "@repograph/core": "workspace:*",
+    "@repograph/mcp": "workspace:*",
+    "commander": "^13.1.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

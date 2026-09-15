@@ -2,10 +2,20 @@
   "name": "@repograph/mcp",
   "version": "0.1.0",
   "private": true,
-  "description": "MCP interface for RepoGraph.",
+  "description": "RepoGraph by aayanlabs — MCP interface.",
+  "author": "aayanlabs <mdaayanmalik9291@gmail.com>",
+  "license": "MIT",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "dependencies": {
-    "@repograph/core": "workspace:*"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@repograph/core": "workspace:*",
+    "zod": "^3.25.76"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

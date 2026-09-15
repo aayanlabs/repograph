@@ -1,0 +1,59 @@
+# RepoGraph by aayanlabs - Project Specification & Phase Roadmap
+
+## 1. Executive Overview
+**RepoGraph by aayanlabs** (Copyright (c) 2026 aayanlabs) is a local-first semantic codebase graph built specifically for AI coding agents. It scans and parses source code repositories into a structured, queryable SQLite graph model. This enables AI agents to quickly retrieve relevant symbols, files, dependencies, and impact graphs without scanning entire codebases or relying on cloud APIs.
+
+---
+
+## 2. Monorepo Architecture & Package Boundaries
+- `packages/core`: Core domain model, file scanner, tree-sitter AST parser, SQLite database storage (`node:sqlite`), incremental indexer, and context retrieval engine.
+- `packages/cli`: Command-line interface built with Commander (`init`, `update`, `status`, `search`, `context`, `deps`, `impact`, `watch`, `mcp`).
+- `packages/mcp`: Model Context Protocol (MCP) server integration using `@modelcontextprotocol/sdk` exposing tools (`repo_search`, `repo_context`, `repo_symbol`, `repo_dependencies`, `repo_dependents`, `repo_impact`).
+- `parsers/`: Language-specific parser boundaries and tree-sitter bindings.
+- `benchmarks/`: Reproducible performance benchmarks.
+- `tests/`: Integration and cross-package test suite.
+
+---
+
+## 3. Technology Stack & Requirements
+- Runtime: Node.js 22.5+ (uses native `node:sqlite` DatabaseSync module)
+- Package Manager: pnpm 10+ (workspace monorepo setup)
+- Language: TypeScript 5.9+ with strict type checking
+- Parsing: `tree-sitter`, `tree-sitter-javascript`, `tree-sitter-typescript`
+- Testing & Quality: Vitest, ESLint, Prettier
+
+---
+
+## 4. System Capabilities & Data Model
+- **Graph Nodes**: `file`, `directory`, `function`, `class`, `method`, `interface`, `type`, `variable`, `parameter`, `component`, `import`, `export`.
+- **Graph Edges**: `imports`, `exports`, `contains`, `calls`, `extends`, `implements`, `references`, `depends_on`, `renders`, `reads`, `writes`, `routes_to`.
+- **Incremental Indexing**: Uses SHA-256 hashes and file modification timestamps to skip unchanged files and cleanly purge deleted files.
+- **Context Retrieval**: Lexical symbol matching combined with 1-hop and multi-hop graph relationship resolution.
+
+---
+
+## 5. Development Phases & Current Status
+
+### Phase 1: Monorepo Setup & Core Foundation [COMPLETED]
+- Monorepo workspace configuration (`packages/core`, `packages/cli`, `packages/mcp`).
+- SQLite storage schema (`files`, `nodes`, `edges` with WAL mode & cascading deletes).
+- File Scanner with `.gitignore` and `ignore` matching.
+- Tree-Sitter AST parser for TS/JS source files.
+- Incremental Repository Indexer.
+- Retrieval engine for lexical search, context retrieval, dependency listing, and impact analysis.
+- CLI subcommands and MCP server tools.
+
+### Phase 2: Comprehensive Testing & Parser Hardening [IN PROGRESS]
+- Complete unit test suite for scanner, parser, storage, indexer, and retrieval engine.
+- Enhanced parser support for JSX/TSX components, re-exports, default exports, destructuring, and arrow functions.
+- Robust error handling for invalid syntax, missing imports, and malformed files.
+
+### Phase 3: Semantic Graph Enhancement & Monorepo Path Resolution [PLANNED]
+- Tsconfig path aliases support (`@/`, `~`) and pnpm workspace cross-package import resolution.
+- Inheritance graph edges (`extends`, `implements`).
+- Multi-hop impact analysis refinement.
+
+### Phase 4: PageRank Centrality, FTS5 Search & Performance Benchmarking [PLANNED]
+- Graph centrality algorithm (PageRank) to weight critical symbols higher in search.
+- SQLite FTS5 (Full-Text Search) integration for superfast symbol search.
+- Benchmark suite in `benchmarks/` to measure index time, database size, and query latency across large repos.
