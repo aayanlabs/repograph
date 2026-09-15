@@ -9,6 +9,9 @@
   "engines": {
     "node": ">=22.5.0"
   },
+  "bin": {
+    "repograph": "packages/cli/dist/index.js"
+  },
   "scripts": {
     "build": "pnpm --recursive --if-present build",
     "clean": "pnpm --recursive --if-present clean",
