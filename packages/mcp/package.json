@@ -1,0 +1,15 @@
+{
+  "name": "@repograph/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP interface for RepoGraph.",
+  "type": "module",
+  "dependencies": {
+    "@repograph/core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

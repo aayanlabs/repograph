@@ -1,0 +1,19 @@
+{
+  "name": "@repograph/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Command-line interface for RepoGraph.",
+  "type": "module",
+  "bin": {
+    "repograph": "dist/index.js"
+  },
+  "dependencies": {
+    "@repograph/core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

@@ -1,0 +1,9 @@
+.agents/
+.cache/
+.local/
+.upm/
+attached_assets/
+coverage/
+dist/
+node_modules/
+.replit
