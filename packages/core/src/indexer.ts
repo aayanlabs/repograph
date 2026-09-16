@@ -109,10 +109,15 @@ export function resolveImportPath(
     `${base}.jsx`,
     `${base}.mjs`,
     `${base}.cjs`,
+    `${base}.vue`,
+    `${base}.svelte`,
+    `${base}.json`,
     `${base}/index.ts`,
     `${base}/index.tsx`,
     `${base}/index.js`,
     `${base}/index.jsx`,
+    `${base}/index.vue`,
+    `${base}/index.svelte`,
   ];
   return candidates.find((candidate) => repositoryPaths.has(candidate)) ?? null;
 }

@@ -39,18 +39,42 @@ const LANGUAGE_BY_EXTENSION: Record<string, Exclude<SourceLanguage, null>> = {
 };
 
 export async function findGitRoot(startDir: string): Promise<string> {
-  let current = resolve(startDir);
+  const current = resolve(startDir);
 
+  // 1. If startDir has .git, .repograph, or package.json directly, use startDir!
+  try {
+    await lstat(join(current, ".git"));
+    return current;
+  } catch {
+    /* continue */
+  }
+
+  try {
+    await lstat(join(current, "package.json"));
+    return current;
+  } catch {
+    /* continue */
+  }
+
+  try {
+    await lstat(join(current, ".repograph"));
+    return current;
+  } catch {
+    /* continue */
+  }
+
+  // 2. Otherwise walk up to find parent .git
+  let walk = current;
   while (true) {
-    try {
-      await lstat(join(current, ".git"));
+    const parent = resolve(walk, "..");
+    if (parent === walk) {
       return current;
+    }
+    try {
+      await lstat(join(parent, ".git"));
+      return parent;
     } catch {
-      const parent = resolve(current, "..");
-      if (parent === current) {
-        return resolve(startDir);
-      }
-      current = parent;
+      walk = parent;
     }
   }
 }
