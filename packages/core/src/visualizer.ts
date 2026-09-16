@@ -455,6 +455,14 @@ export function generateDashboardHtml(store: GraphStore): string {
   const fileMap = {};
   rawFiles.forEach(f => fileMap[f.path] = f);
 
+  // Map Node IDs and File Node IDs to FilePaths
+  const nodeToFileMap = {};
+  rawNodes.forEach(n => nodeToFileMap[n.id] = n.filePath);
+  rawFiles.forEach(f => {
+    nodeToFileMap["file:" + f.path] = f.path;
+    nodeToFileMap[f.path] = f.path;
+  });
+
   // Stats Header Injection
   document.getElementById("hdr-files").textContent = rawFiles.length;
   document.getElementById("hdr-symbols").textContent = rawNodes.length;
@@ -585,10 +593,8 @@ export function generateDashboardHtml(store: GraphStore): string {
     adjMap = {};
 
     if (graphScope === "file") {
-      /* File-Level Aggregated Import Graph (Fast, clean architectural graph) */
+      /* File-Level Aggregated Import Graph */
       const fileNodesMap = {};
-      const fileDegreeMap = {};
-
       rawFiles.forEach(f => {
         if (activeFolderFilter && !f.path.startsWith(activeFolderFilter)) return;
         fileNodesMap[f.path] = {
@@ -602,22 +608,18 @@ export function generateDashboardHtml(store: GraphStore): string {
         };
       });
 
-      // Aggregate Edges
+      // Aggregate All Cross-File Edges (both file imports AND symbol-to-symbol cross-file links)
       const aggregatedEdges = [];
       const edgeSet = new Set();
-      const nodeToFile = {};
-      rawNodes.forEach(n => nodeToFile[n.id] = n.filePath);
 
       rawEdges.forEach(e => {
-        const sFile = nodeToFile[e.source];
-        const tFile = nodeToFile[e.target];
+        const sFile = nodeToFileMap[e.source];
+        const tFile = nodeToFileMap[e.target];
         if (sFile && tFile && sFile !== tFile && fileNodesMap[sFile] && fileNodesMap[tFile]) {
           const key = sFile + "-->" + tFile;
           if (!edgeSet.has(key)) {
             edgeSet.add(key);
             aggregatedEdges.push({ source: sFile, target: tFile, kind: e.kind });
-            fileDegreeMap[sFile] = (fileDegreeMap[sFile] || 0) + 1;
-            fileDegreeMap[tFile] = (fileDegreeMap[tFile] || 0) + 1;
           }
         }
       });
@@ -667,7 +669,7 @@ export function generateDashboardHtml(store: GraphStore): string {
     const N = N_TOTAL();
     positions = new Array(N);
 
-    // Group connected vs disconnected nodes
+    // Separate connected vs isolated nodes
     const connectedIdx = [];
     const isolatedIdx = [];
 
@@ -678,7 +680,7 @@ export function generateDashboardHtml(store: GraphStore): string {
       else isolatedIdx.push(i);
     }
 
-    // Folder Cluster Centers
+    // Folder Cluster Centers for connected nodes
     const folderClusters = {};
     let cCount = 0;
     connectedIdx.forEach(i => {
@@ -687,13 +689,13 @@ export function generateDashboardHtml(store: GraphStore): string {
       if (folderClusters[folder] === undefined) folderClusters[folder] = cCount++;
     });
 
-    const radiusStep = Math.sqrt(connectedIdx.length) * 35;
+    const radiusStep = Math.max(160, Math.sqrt(connectedIdx.length) * 45);
     connectedIdx.forEach((idx, i) => {
       const parts = activeNodes[idx].filePath.split("/");
       const folder = parts.length > 1 ? parts.slice(0, Math.min(2, parts.length - 1)).join("/") : "root";
       const cIdx = folderClusters[folder] || 0;
       const angle = (cIdx / Math.max(cCount, 1)) * Math.PI * 2 + (i % 5) * 0.4;
-      const r = Math.min(radiusStep, 400) + (i % 7) * 20;
+      const r = Math.min(radiusStep, 450) + (i % 7) * 22;
 
       positions[idx] = {
         x: Math.cos(angle) * r + (Math.random() - 0.5) * 60,
@@ -702,18 +704,20 @@ export function generateDashboardHtml(store: GraphStore): string {
       };
     });
 
-    // Neat Rectangular Grid Placement for Disconnected Nodes (Image 2 style)
-    const gridCols = Math.ceil(Math.sqrt(isolatedIdx.length));
-    const gridSpacing = 28;
-    const gridStartX = radiusStep + 200;
-    const gridStartY = - (gridCols * gridSpacing) / 2;
+    // Generously Spaced Grid for Isolated / Standalone Nodes (Prevents label streak overlap!)
+    // Column spacing: 200px, Row spacing: 38px
+    const gridCols = Math.min(5, Math.ceil(Math.sqrt(isolatedIdx.length)));
+    const gridSpacingX = 210;
+    const gridSpacingY = 38;
+    const gridStartX = radiusStep > 0 ? radiusStep + 180 : - ((gridCols * gridSpacingX) / 2);
+    const gridStartY = - ((Math.ceil(isolatedIdx.length / Math.max(gridCols, 1)) * gridSpacingY) / 2);
 
     isolatedIdx.forEach((idx, i) => {
       const col = i % gridCols;
       const row = Math.floor(i / gridCols);
       positions[idx] = {
-        x: gridStartX + col * gridSpacing,
-        y: gridStartY + row * gridSpacing,
+        x: gridStartX + col * gridSpacingX,
+        y: gridStartY + row * gridSpacingY,
         vx: 0, vy: 0, isolated: true
       };
     });
@@ -721,6 +725,9 @@ export function generateDashboardHtml(store: GraphStore): string {
 
   function resetSimulation() {
     alpha = 1.0;
+    // Pre-tick layout so graph opens settled & ready
+    for (let t = 0; t < 60; t++) tickSimulation();
+    setTimeout(fitView, 50);
   }
 
   function tickSimulation() {
@@ -728,9 +735,9 @@ export function generateDashboardHtml(store: GraphStore): string {
     const N = N_TOTAL();
     if (N === 0) return;
 
-    const repulsion = 120 * alpha;
-    const springLen = 45;
-    const springStr = 0.06 * alpha;
+    const repulsion = 140 * alpha;
+    const springLen = 50;
+    const springStr = 0.05 * alpha;
     const gravity = 0.001 * alpha;
     const damping = 0.72;
 
@@ -889,6 +896,7 @@ export function generateDashboardHtml(store: GraphStore): string {
     if (positions.length === 0) return;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     positions.forEach(p => {
+      if (!p) return;
       if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
       if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
     });
@@ -896,7 +904,7 @@ export function generateDashboardHtml(store: GraphStore): string {
     const h = maxY - minY || 100;
     camX = - (minX + maxX) / 2;
     camY = - (minY + maxY) / 2;
-    zoom = Math.min(cw / (w + 200), ch / (h + 200));
+    zoom = Math.min(cw / (w + 260), ch / (h + 260));
   }
 
   /* ---- Canvas Hover & Selection Inspector ---- */
@@ -907,7 +915,7 @@ export function generateDashboardHtml(store: GraphStore): string {
     if (dragging) return;
     const mx = (e.clientX - cw / 2) / zoom - camX;
     const my = (e.clientY - ch / 2) / zoom - camY;
-    let best = -1, bestD = 16 / zoom;
+    let best = -1, bestD = 18 / zoom;
     for (let i = 0; i < activeNodes.length; i++) {
       const dx = positions[i].x - mx, dy = positions[i].y - my;
       const d = Math.sqrt(dx * dx + dy * dy);
@@ -1160,7 +1168,7 @@ export function generateDashboardHtml(store: GraphStore): string {
       activeNeighbors.add(activeIdx);
     }
 
-    /* 1. Render Translucent Folder Cluster Hulls (Image 1 Feature) */
+    /* 1. Render Translucent Folder Cluster Hulls */
     if (showHulls) {
       folderHulls.forEach(h => {
         ctx.beginPath();
@@ -1170,7 +1178,6 @@ export function generateDashboardHtml(store: GraphStore): string {
         }
         ctx.closePath();
 
-        // Shaded tint
         ctx.fillStyle = "rgba(56, 189, 248, 0.04)";
         ctx.fill();
         ctx.strokeStyle = "rgba(56, 189, 248, 0.2)";
@@ -1179,7 +1186,6 @@ export function generateDashboardHtml(store: GraphStore): string {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Folder Label over hull
         ctx.fillStyle = "rgba(56, 189, 248, 0.5)";
         ctx.font = "10px sans-serif";
         ctx.fillText("📁 " + h.folder, h.points[0].x, h.points[0].y - 6);
@@ -1204,7 +1210,6 @@ export function generateDashboardHtml(store: GraphStore): string {
       ctx.lineWidth = isConn ? 2.2 : 0.8;
 
       ctx.beginPath();
-      // Curved Bezier line
       const midX = (pS.x + pT.x) / 2 + (pT.y - pS.y) * 0.15;
       const midY = (pS.y + pT.y) / 2 - (pT.x - pS.x) * 0.15;
       ctx.moveTo(pS.x, pS.y);
@@ -1216,6 +1221,8 @@ export function generateDashboardHtml(store: GraphStore): string {
     for (let i = 0; i < activeNodes.length; i++) {
       const n = activeNodes[i];
       const p = positions[i];
+      if (!p) continue;
+
       const col = getNodeColor(n);
 
       const isSel = i === selectedIdx;
@@ -1250,19 +1257,35 @@ export function generateDashboardHtml(store: GraphStore): string {
         ctx.stroke();
       }
 
-      /* Node Labels */
-      if (showLabels && (zoom > 0.8 || isSel || isHov || isNeigh || deg > 3)) {
+      /* Node Labels with Pill Background to Avoid Overlap Streaks */
+      if (showLabels && (zoom > 0.6 || isSel || isHov || isNeigh || deg > 0)) {
         ctx.globalAlpha = dimmed ? 0.1 : 0.95;
-        ctx.fillStyle = (isSel || isHov) ? "#ffffff" : "#cbd5e1";
-        ctx.font = (isSel || isHov ? "bold " : "") + (isSel || isHov ? "12px" : "10px") + " sans-serif";
-        ctx.fillText(n.name, p.x + r + 5, p.y + 4);
+        const fontPx = (isSel || isHov ? 12 : 10);
+        ctx.font = (isSel || isHov ? "bold " : "") + fontPx + "px sans-serif";
+
+        let labelText = n.name;
+        if (!isSel && !isHov && labelText.length > 22) {
+          labelText = labelText.substring(0, 20) + "…";
+        }
+
+        const textMetrics = ctx.measureText(labelText);
+        const textW = textMetrics.width;
+
+        // Label Semi-transparent Pill Background
+        ctx.fillStyle = isSel || isHov ? "rgba(15, 23, 42, 0.9)" : "rgba(9, 12, 21, 0.75)";
+        ctx.beginPath();
+        ctx.roundRect(p.x + r + 4, p.y - fontPx / 2 - 2, textW + 8, fontPx + 4, 4);
+        ctx.fill();
+
+        ctx.fillStyle = (isSel || isHov) ? "#ffffff" : "#c9d1d9";
+        ctx.fillText(labelText, p.x + r + 8, p.y + fontPx / 3);
       }
     }
 
     ctx.restore();
   }
 
-  // Initial Build
+  // Initial Build & Render
   rebuildGraph();
   render();
 
