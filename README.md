@@ -1,10 +1,18 @@
 # RepoGraph 2.0 by aayanlabs
 
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<div align="center">
+
+[![CI](https://github.com/aayanlabs/repograph/actions/workflows/ci.yml/badge.svg)](https://github.com/aayanlabs/repograph/actions/workflows/ci.yml)
+[![MIT License](https://img.shields.io/github/license/aayanlabs/repograph?color=blue)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.5.0-brightgreen.svg)](https://nodejs.org/)
-[![pnpm](https://img.shields.io/badge/pnpm-workspace-orange.svg)](https://pnpm.io/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
-[![Build & Test](https://img.shields.io/badge/tests-35%20passed-success.svg)](#development--testing)
+[![GitHub stars](https://img.shields.io/github/stars/aayanlabs/repograph?style=social)](https://github.com/aayanlabs/repograph)
+
+**A local-first codebase intelligence platform for developers and AI coding agents.**
+
+_Understand architecture · Trace dependencies · Analyze blast radius · Navigate unfamiliar codebases — all without cloud APIs._
+
+</div>
 
 **RepoGraph 2.0** is a local-first codebase intelligence platform and semantic code graph for developers and AI coding agents. It indexes software repositories into a versioned SQLite (`node:sqlite` + FTS5) graph with two-pass cross-file symbol resolution, module coupling metrics, blast-radius analysis, an interactive 5-mode graph dashboard, and an expanded Model Context Protocol (MCP) server.
 
@@ -24,6 +32,29 @@ Understanding large repositories shouldn't require grepping blindly or burning L
 
 ---
 
+## Quick Start
+
+```bash
+# Clone & build
+git clone https://github.com/aayanlabs/repograph.git
+cd repograph && pnpm install && pnpm build
+
+# Index any repository
+node packages/cli/dist/index.js init /path/to/your/project
+
+# Launch the interactive 5-mode dashboard
+node packages/cli/dist/index.js ui -p /path/to/your/project
+# → Open http://localhost:3333
+
+# Get an architecture overview from the CLI
+node packages/cli/dist/index.js overview -p /path/to/your/project
+
+# Check blast radius before editing a file
+node packages/cli/dist/index.js impact src/core/auth.ts -p /path/to/your/project
+```
+
+---
+
 ## Five Graph Visualization Modes
 
 Launch the self-contained dashboard with `repograph ui`:
@@ -35,6 +66,7 @@ Launch the self-contained dashboard with `repograph ui`:
 5. **Codebase Map** — Squarified treemap sized by file bytes and colored by language with click-to-drill navigation.
 
 **Interactive Controls**:
+
 - **3 Layout Algorithms**: Directory Clustered, Layered DAG, and Concentric Radial.
 - **Instant Search Highlighting**: Press `/` or `Ctrl+K` to highlight matching nodes without rebuilding the graph.
 - **Keyboard Shortcuts**: `1`–`5` switch modes, `F` fit to screen, `H` toggle cluster hulls, `L` toggle labels, `Esc` clear selection.
@@ -43,14 +75,17 @@ Launch the self-contained dashboard with `repograph ui`:
 ### Screenshots
 
 #### Architecture View
+
 ![RepoGraph Architecture View](docs/screenshots/architecture.png)
 
 #### Dependency View
+
 ![RepoGraph Dependency View](docs/screenshots/dependency.png)
 
 #### Symbol View & Codebase Map
-| Symbol View | Codebase Map |
-| --- | --- |
+
+| Symbol View                                           | Codebase Map                                                 |
+| ----------------------------------------------------- | ------------------------------------------------------------ |
 | ![RepoGraph Symbol View](docs/screenshots/symbol.png) | ![RepoGraph Codebase Map](docs/screenshots/codebase-map.png) |
 
 ---
@@ -114,24 +149,24 @@ npm link
 repograph <command> [options]
 ```
 
-| Command              | Description                                                      | Example                                |
-| -------------------- | ---------------------------------------------------------------- | -------------------------------------- |
-| `init [path]`        | Index a repository into `.repograph/graph.db`                    | `repograph init .`                     |
-| `update [path]`      | Incrementally update index for modified files                    | `repograph update`                     |
-| `status [path]`      | Display graph statistics (files, nodes, edges)                   | `repograph status`                     |
-| `overview`           | Show architecture summary, cycle warnings, and coupled modules   | `repograph overview`                   |
-| `metrics [target]`   | Show fan-in, fan-out, and Martin instability index per module    | `repograph metrics`                    |
-| `search <query>`     | Search symbols by name, path, or signature using FTS5            | `repograph search UserService`         |
-| `context <task>`     | Retrieve ranked code context for a coding task                   | `repograph context "fix login auth"`   |
-| `deps <target>`      | List direct outgoing dependencies                                | `repograph deps src/auth.ts`           |
-| `impact <target>`    | List multi-hop downstream dependents                             | `repograph impact src/types.ts`        |
-| `path <src> <dst>`   | Find shortest call/import path between symbols or files          | `repograph path User Auth`             |
-| `cycles`             | Find circular import loops across files                          | `repograph cycles`                     |
-| `export [options]`   | Export repository graph in JSON or GraphML format                | `repograph export --format graphml`    |
-| `watch [path]`       | Watch directory and incrementally index on file save             | `repograph watch`                      |
-| `ui [path]`          | Launch the 5-mode interactive graph dashboard                    | `repograph ui --port 3333`             |
-| `ai <query>`         | Query the code graph using grounded natural language             | `repograph ai "find circular deps"`    |
-| `mcp [path]`         | Start the MCP server over stdio for AI coding agents             | `repograph mcp`                        |
+| Command            | Description                                                    | Example                              |
+| ------------------ | -------------------------------------------------------------- | ------------------------------------ |
+| `init [path]`      | Index a repository into `.repograph/graph.db`                  | `repograph init .`                   |
+| `update [path]`    | Incrementally update index for modified files                  | `repograph update`                   |
+| `status [path]`    | Display graph statistics (files, nodes, edges)                 | `repograph status`                   |
+| `overview`         | Show architecture summary, cycle warnings, and coupled modules | `repograph overview`                 |
+| `metrics [target]` | Show fan-in, fan-out, and Martin instability index per module  | `repograph metrics`                  |
+| `search <query>`   | Search symbols by name, path, or signature using FTS5          | `repograph search UserService`       |
+| `context <task>`   | Retrieve ranked code context for a coding task                 | `repograph context "fix login auth"` |
+| `deps <target>`    | List direct outgoing dependencies                              | `repograph deps src/auth.ts`         |
+| `impact <target>`  | List multi-hop downstream dependents                           | `repograph impact src/types.ts`      |
+| `path <src> <dst>` | Find shortest call/import path between symbols or files        | `repograph path User Auth`           |
+| `cycles`           | Find circular import loops across files                        | `repograph cycles`                   |
+| `export [options]` | Export repository graph in JSON or GraphML format              | `repograph export --format graphml`  |
+| `watch [path]`     | Watch directory and incrementally index on file save           | `repograph watch`                    |
+| `ui [path]`        | Launch the 5-mode interactive graph dashboard                  | `repograph ui --port 3333`           |
+| `ai <query>`       | Query the code graph using grounded natural language           | `repograph ai "find circular deps"`  |
+| `mcp [path]`       | Start the MCP server over stdio for AI coding agents           | `repograph mcp`                      |
 
 ---
 
@@ -154,20 +189,20 @@ RepoGraph connects seamlessly with AI coding assistants (Claude Desktop, Antigra
 
 ### Exposed MCP Tools
 
-| Tool                     | Description                                                                   |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| `get_repository_overview`| High-level stats, language breakdown, cycles, and top coupled modules         |
-| `explain_architecture`   | Grounded architectural summary from actual graph metrics                      |
-| `search_symbols`         | Search symbols by name, path, or signature with optional `kind` filter        |
-| `get_dependencies`       | Direct outgoing dependencies of a file or symbol                              |
-| `get_dependents`         | Direct incoming dependents of a file or symbol                                |
-| `get_file_relationships` | Combined incoming, outgoing, and module metrics for a file                    |
-| `analyze_impact`         | Structured blast radius report with risk score and causal paths               |
-| `get_relevant_context`   | Ranked code snippets and relationships for a task                             |
-| `find_cycles`            | Detect circular dependency loops                                              |
-| `get_module_metrics`     | Fan-in, fan-out, and instability metrics across modules                       |
+| Tool                      | Description                                                            |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `get_repository_overview` | High-level stats, language breakdown, cycles, and top coupled modules  |
+| `explain_architecture`    | Grounded architectural summary from actual graph metrics               |
+| `search_symbols`          | Search symbols by name, path, or signature with optional `kind` filter |
+| `get_dependencies`        | Direct outgoing dependencies of a file or symbol                       |
+| `get_dependents`          | Direct incoming dependents of a file or symbol                         |
+| `get_file_relationships`  | Combined incoming, outgoing, and module metrics for a file             |
+| `analyze_impact`          | Structured blast radius report with risk score and causal paths        |
+| `get_relevant_context`    | Ranked code snippets and relationships for a task                      |
+| `find_cycles`             | Detect circular dependency loops                                       |
+| `get_module_metrics`      | Fan-in, fan-out, and instability metrics across modules                |
 
-*Backward-compatible legacy aliases (`repo_search`, `repo_context`, `repo_symbol`, `repo_dependencies`, `repo_dependents`, `repo_impact`, `repo_path`, `repo_cycles`, `repo_export`) remain fully supported.*
+_Backward-compatible legacy aliases (`repo_search`, `repo_context`, `repo_symbol`, `repo_dependencies`, `repo_dependents`, `repo_impact`, `repo_path`, `repo_cycles`, `repo_export`) remain fully supported._
 
 ---
 
@@ -210,6 +245,19 @@ pnpm lint
 # Run benchmark test
 pnpm --filter benchmarks test
 ```
+
+---
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions.
+
+Looking for a place to start? Check out the [Good First Issues](GOOD_FIRST_ISSUES.md) — well-scoped tasks for new contributors, including:
+
+- 🦀 **Rust / Java / C# language support**
+- 🔀 **`repograph diff` for PR impact checks**
+- 🎨 **Dark/Light theme toggle**
+- 📸 **Export dashboard as PNG**
 
 ---
 

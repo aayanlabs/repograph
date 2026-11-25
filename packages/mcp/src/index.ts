@@ -25,7 +25,8 @@ export function createRepoGraphMcpServer(repositoryPath: string, store?: GraphSt
   server.registerTool(
     "get_repository_overview",
     {
-      description: "Get high-level repository statistics, languages, modules, and architecture summary.",
+      description:
+        "Get high-level repository statistics, languages, modules, and architecture summary.",
       inputSchema: {},
     },
     async () => {
@@ -54,7 +55,8 @@ export function createRepoGraphMcpServer(repositoryPath: string, store?: GraphSt
   server.registerTool(
     "explain_architecture",
     {
-      description: "Generate a grounded architectural overview explaining module boundaries and coupling.",
+      description:
+        "Generate a grounded architectural overview explaining module boundaries and coupling.",
       inputSchema: {},
     },
     async () => {
@@ -175,7 +177,8 @@ export function createRepoGraphMcpServer(repositoryPath: string, store?: GraphSt
   server.registerTool(
     "repo_search",
     {
-      description: "Legacy alias for search_symbols: Search indexed symbols and files by lexical relevance.",
+      description:
+        "Legacy alias for search_symbols: Search indexed symbols and files by lexical relevance.",
       inputSchema: { query: z.string(), limit: z.number().int().min(1).max(100).optional() },
     },
     async ({ query, limit }) => textResult(engine.search(query, limit ?? 20)),
@@ -184,7 +187,8 @@ export function createRepoGraphMcpServer(repositoryPath: string, store?: GraphSt
   server.registerTool(
     "repo_context",
     {
-      description: "Legacy alias for get_relevant_context: Retrieve compact, ranked source context for a task.",
+      description:
+        "Legacy alias for get_relevant_context: Retrieve compact, ranked source context for a task.",
       inputSchema: { task: z.string(), limit: z.number().int().min(1).max(50).optional() },
     },
     async ({ task, limit }) => {

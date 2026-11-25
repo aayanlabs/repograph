@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createAiProvider, explainArchitecture, explainImpact, queryGraphNaturalLanguage } from "./ai.js";
+import {
+  createAiProvider,
+  explainArchitecture,
+  explainImpact,
+  queryGraphNaturalLanguage,
+} from "./ai.js";
 import { GraphStore } from "./storage.js";
 
 describe("ai integration layer", () => {

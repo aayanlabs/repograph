@@ -25,10 +25,7 @@ function escapeServerHtml(value: string): string {
  *  4. Impact Analysis View
  *  5. Codebase Map (Squarified Treemap)
  */
-export function generateDashboardHtml(
-  store: GraphStore,
-  options: DashboardOptions = {},
-): string {
+export function generateDashboardHtml(store: GraphStore, options: DashboardOptions = {}): string {
   const files = store.getFiles();
   const nodes = store.allNodes();
   const edges = store.allEdges();

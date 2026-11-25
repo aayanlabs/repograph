@@ -213,7 +213,10 @@ Analyze the following grounded facts extracted from the repository graph:
 - Primary Modules & Coupling:
 ${topHubs.map((h) => `  * ${h.filePath}: Fan-In=${h.fanIn}, Fan-Out=${h.fanOut}, Instability=${h.instability}`).join("\n")}
 - Sample File Paths:
-${files.slice(0, 20).map((f) => `  * ${f.path} (${f.language})`).join("\n")}
+${files
+  .slice(0, 20)
+  .map((f) => `  * ${f.path} (${f.language})`)
+  .join("\n")}
 
 Explain the architecture of this repository, identifying:
 1. High-level architecture pattern and organization
@@ -248,10 +251,20 @@ Risk Assessment: ${report.riskScore.toUpperCase()}
 Total Downstream Affected: ${report.totalAffected} symbols/files
 
 Direct Dependents:
-${report.directDependents.slice(0, 8).map((d) => `  - ${d.node.kind} '${d.node.name}' in ${d.node.filePath}: ${d.reason}`).join("\n") || "  (None)"}
+${
+  report.directDependents
+    .slice(0, 8)
+    .map((d) => `  - ${d.node.kind} '${d.node.name}' in ${d.node.filePath}: ${d.reason}`)
+    .join("\n") || "  (None)"
+}
 
 Indirect Dependents:
-${report.indirectDependents.slice(0, 8).map((d) => `  - ${d.node.kind} '${d.node.name}' in ${d.node.filePath} [depth ${d.depth}]`).join("\n") || "  (None)"}
+${
+  report.indirectDependents
+    .slice(0, 8)
+    .map((d) => `  - ${d.node.kind} '${d.node.name}' in ${d.node.filePath} [depth ${d.depth}]`)
+    .join("\n") || "  (None)"
+}
 
 Affected Files:
 ${report.affectedFiles.join(", ") || "(None)"}
@@ -284,12 +297,20 @@ export async function queryGraphNaturalLanguage(
       cycles.length === 0
         ? "No circular dependency loops were detected in the repository graph."
         : `Detected ${cycles.length} circular dependency loop(s):\n` +
-          cycles.map((c, i) => `Loop ${i + 1}: ${c.cycle.map((n) => n.name).join(" -> ")}`).join("\n");
+          cycles
+            .map((c, i) => `Loop ${i + 1}: ${c.cycle.map((n) => n.name).join(" -> ")}`)
+            .join("\n");
     return { answer, nodes: cycles.flatMap((c) => c.cycle), facts };
   }
 
-  if (normalized.includes("coupled") || normalized.includes("coupling") || normalized.includes("hotspot")) {
-    const metrics = store.getModuleMetrics().sort((a, b) => b.fanIn + b.fanOut - (a.fanIn + a.fanOut));
+  if (
+    normalized.includes("coupled") ||
+    normalized.includes("coupling") ||
+    normalized.includes("hotspot")
+  ) {
+    const metrics = store
+      .getModuleMetrics()
+      .sort((a, b) => b.fanIn + b.fanOut - (a.fanIn + a.fanOut));
     const top = metrics.slice(0, 5);
     facts.push(`Calculated coupling metrics across ${metrics.length} modules.`);
     matchingNodes = top

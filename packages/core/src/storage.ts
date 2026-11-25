@@ -482,8 +482,7 @@ export class GraphStore {
             affectedFiles.add(depNode.filePath);
             const meta = edge.metadata ?? {};
             const confidence = (meta.confidence === "inferred" ? "inferred" : "static") as
-              | "static"
-              | "inferred";
+              "static" | "inferred";
             const reason = `${depNode.kind} '${depNode.name}' ${edge.kind} ${node.name} (level ${level})`;
 
             const impactItem: ImpactNode = {
@@ -535,32 +534,38 @@ export class GraphStore {
       return [];
     }
 
-    const fanInRows = this.prepare<{ file_path: string; count: number }>(`
+    const fanInRows = this.prepare<{ file_path: string; count: number }>(
+      `
       SELECT target_node.file_path AS file_path, COUNT(DISTINCT e.source_id) AS count
       FROM edges e
       JOIN nodes target_node ON e.target_id = target_node.id
       JOIN nodes source_node ON e.source_id = source_node.id
       WHERE source_node.file_path != target_node.file_path
       GROUP BY target_node.file_path
-    `).all();
+    `,
+    ).all();
     const fanInMap = new Map(fanInRows.map((r) => [r.file_path, r.count]));
 
-    const fanOutRows = this.prepare<{ file_path: string; count: number }>(`
+    const fanOutRows = this.prepare<{ file_path: string; count: number }>(
+      `
       SELECT source_node.file_path AS file_path, COUNT(DISTINCT e.target_id) AS count
       FROM edges e
       JOIN nodes source_node ON e.source_id = source_node.id
       JOIN nodes target_node ON e.target_id = target_node.id
       WHERE source_node.file_path != target_node.file_path
       GROUP BY source_node.file_path
-    `).all();
+    `,
+    ).all();
     const fanOutMap = new Map(fanOutRows.map((r) => [r.file_path, r.count]));
 
-    const symbolRows = this.prepare<{ file_path: string; count: number }>(`
+    const symbolRows = this.prepare<{ file_path: string; count: number }>(
+      `
       SELECT file_path, COUNT(*) AS count
       FROM nodes
       WHERE kind != 'file'
       GROUP BY file_path
-    `).all();
+    `,
+    ).all();
     const symbolMap = new Map(symbolRows.map((r) => [r.file_path, r.count]));
 
     return files.map((file) => {

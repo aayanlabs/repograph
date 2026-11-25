@@ -111,10 +111,7 @@ export class RepositoryIndexer {
     }
 
     for (const ctx of contexts) {
-      const localMap = new Map<
-        string,
-        { nodeId: string; targetPath: string; isFile: boolean }
-      >();
+      const localMap = new Map<string, { nodeId: string; targetPath: string; isFile: boolean }>();
 
       // 1. Resolve named imports to target exported symbols
       for (const imp of ctx.namedImports) {

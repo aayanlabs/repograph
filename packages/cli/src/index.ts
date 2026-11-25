@@ -285,13 +285,15 @@ program
 
       console.log(`\nTop Coupled Modules (Fan-In + Fan-Out):`);
       const topCoupled = [...metrics]
-        .sort((a, b) => (b.fanIn + b.fanOut) - (a.fanIn + a.fanOut))
+        .sort((a, b) => b.fanIn + b.fanOut - (a.fanIn + a.fanOut))
         .slice(0, 10);
 
       topCoupled.forEach((m) => {
         const total = m.fanIn + m.fanOut;
         const inst = m.instability.toFixed(2);
-        console.log(`  ${m.filePath.padEnd(45)} total=${String(total).padStart(3)} | fan-in=${String(m.fanIn).padStart(3)} | fan-out=${String(m.fanOut).padStart(3)} | instability=${inst}`);
+        console.log(
+          `  ${m.filePath.padEnd(45)} total=${String(total).padStart(3)} | fan-in=${String(m.fanIn).padStart(3)} | fan-out=${String(m.fanOut).padStart(3)} | instability=${inst}`,
+        );
       });
       console.log("");
     } finally {
@@ -322,18 +324,31 @@ program
           .sort((a, b) => b.instability - a.instability)
           .slice(0, options.limit);
         console.log(`\nModule Coupling & Instability Index (I = Fan-Out / (Fan-In + Fan-Out)):`);
-        console.log(`-----------------------------------------------------------------------------------------`);
-        console.log(`File Path                                     Fan-In  Fan-Out  Instability  Coupling`);
-        console.log(`-----------------------------------------------------------------------------------------`);
+        console.log(
+          `-----------------------------------------------------------------------------------------`,
+        );
+        console.log(
+          `File Path                                     Fan-In  Fan-Out  Instability  Coupling`,
+        );
+        console.log(
+          `-----------------------------------------------------------------------------------------`,
+        );
         for (const m of sorted) {
           const name = m.filePath.length > 42 ? "…" + m.filePath.slice(-41) : m.filePath.padEnd(42);
           const fi = String(m.fanIn).padStart(6);
           const fo = String(m.fanOut).padStart(7);
           const inst = m.instability.toFixed(2).padStart(11);
-          const role = m.instability > 0.8 ? "Fragile/Volatile" : m.instability < 0.2 ? "Stable Core" : "Balanced";
+          const role =
+            m.instability > 0.8
+              ? "Fragile/Volatile"
+              : m.instability < 0.2
+                ? "Stable Core"
+                : "Balanced";
           console.log(`${name}  ${fi}  ${fo}  ${inst}  ${role}`);
         }
-        console.log(`-----------------------------------------------------------------------------------------\n`);
+        console.log(
+          `-----------------------------------------------------------------------------------------\n`,
+        );
       }
     } finally {
       engine.store.close();

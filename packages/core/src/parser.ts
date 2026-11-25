@@ -612,13 +612,20 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
       if (raw) {
         const lineNumber = source.substring(0, match.index).split("\n").length;
         for (const item of raw.split(",")) {
-          const specifier = item.trim().split(/\s+as\s+/)[0]?.trim();
+          const specifier = item
+            .trim()
+            .split(/\s+as\s+/)[0]
+            ?.trim();
           if (specifier) {
             imports.push({ specifier, line: lineNumber });
             namedImports.push({
               specifier,
               importedName: "*",
-              localName: item.trim().split(/\s+as\s+/)[1]?.trim() ?? specifier,
+              localName:
+                item
+                  .trim()
+                  .split(/\s+as\s+/)[1]
+                  ?.trim() ?? specifier,
               isDefault: false,
               line: lineNumber,
             });

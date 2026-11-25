@@ -1,4 +1,10 @@
-import type { ContextResult, GraphNode, ImpactReport, ModuleMetrics, SearchResult } from "./types.js";
+import type {
+  ContextResult,
+  GraphNode,
+  ImpactReport,
+  ModuleMetrics,
+  SearchResult,
+} from "./types.js";
 import type { GraphStore } from "./storage.js";
 
 export class RetrievalEngine {

@@ -184,11 +184,7 @@ export interface ModuleMetrics {
 }
 
 export type GraphVisualizationMode =
-  | "architecture"
-  | "dependency"
-  | "symbol"
-  | "impact"
-  | "codebase_map";
+  "architecture" | "dependency" | "symbol" | "impact" | "codebase_map";
 
 export interface ViewNodeData {
   id: string;

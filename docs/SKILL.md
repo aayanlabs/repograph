@@ -33,16 +33,19 @@ Use RepoGraph **before** grepping or reading dozens of files when working in an 
 ## Recommended Agent Workflows
 
 ### Pre-Edit Safety Workflow
+
 1. `search_symbols` to locate the exact symbol ID or file path.
 2. `analyze_impact` with `depth: 3` to inspect all downstream dependents.
 3. Update the symbol and any affected callers identified in `affectedFiles`.
 
 ### Post-Edit Verification Workflow
+
 1. Run `repograph update` (or let `repograph watch` update the graph).
 2. Call `find_cycles` to ensure no new import cycles exist.
 3. Run the project's test suite covering the `affectedFiles` from `analyze_impact`.
 
 ## CLI Equivalents
+
 - `repograph init` / `repograph update` — Index or incrementally update `.repograph/graph.db`
 - `repograph overview` — Print repository summary, cycle warnings, and top coupled modules
 - `repograph metrics [target]` — Print fan-in, fan-out, and instability metrics
