@@ -1,4 +1,4 @@
-import type { ContextResult, GraphNode, SearchResult } from "./types.js";
+import type { ContextResult, GraphNode, ImpactReport, ModuleMetrics, SearchResult } from "./types.js";
 import type { GraphStore } from "./storage.js";
 
 export class RetrievalEngine {
@@ -42,6 +42,14 @@ export class RetrievalEngine {
 
   impact(target: string, depth = 3): GraphNode[] {
     return this.store.getImpact(target, depth);
+  }
+
+  impactReport(target: string, depth = 3): ImpactReport | null {
+    return this.store.getImpactReport(target, depth);
+  }
+
+  moduleMetrics(filePath?: string): ModuleMetrics[] {
+    return this.store.getModuleMetrics(filePath);
   }
 }
 

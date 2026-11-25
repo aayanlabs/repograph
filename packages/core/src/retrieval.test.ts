@@ -62,5 +62,17 @@ describe("retrieval", () => {
       expect(formatted).toContain("src/auth.ts:1-10");
       expect(formatted).toContain("function authenticateUser");
     }
+
+    const metrics = engine.moduleMetrics("src/auth.ts");
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]?.filePath).toBe("src/auth.ts");
+    expect(metrics[0]?.symbolCount).toBe(1);
+
+    const report = engine.impactReport(node.id, 2);
+    expect(report).not.toBeNull();
+    expect(report?.target.id).toBe(node.id);
+    expect(report?.totalAffected).toBe(0);
+
+    expect(engine.impactReport("non-existent-id")).toBeNull();
   });
 });

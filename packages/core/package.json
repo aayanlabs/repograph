@@ -18,6 +18,9 @@
     "dist"
   ],
   "dependencies": {
+    "@types/dagre": "^0.7.54",
+    "dagre": "^0.8.5",
+    "graphology": "^0.26.0",
     "ignore": "^7.0.9"
   },
   "optionalDependencies": {
@@ -29,5 +32,8 @@
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "graphology-types": "^0.24.8"
   }
 }

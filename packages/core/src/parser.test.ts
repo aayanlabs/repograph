@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSource } from "./parser.js";
+import { extractNamedImports, parseSource } from "./parser.js";
 import type { RepositoryFile } from "./types.js";
 
 function mockFile(path: string, language: RepositoryFile["language"]): RepositoryFile {
@@ -182,5 +182,71 @@ func (s *Server) Start() {
     expect(names).toContain("Start");
     expect(parsed.imports.map((i) => i.specifier)).toContain("fmt");
     expect(parsed.imports.map((i) => i.specifier)).toContain("net/http");
+  });
+
+  describe("extractNamedImports", () => {
+    it("extracts standard named imports", () => {
+      const res = extractNamedImports('import { A, B } from "./module";', 1);
+      expect(res).toHaveLength(2);
+      expect(res[0]).toMatchObject({
+        specifier: "./module",
+        importedName: "A",
+        localName: "A",
+        isDefault: false,
+      });
+      expect(res[1]).toMatchObject({
+        specifier: "./module",
+        importedName: "B",
+        localName: "B",
+        isDefault: false,
+      });
+    });
+
+    it("extracts default imports", () => {
+      const res = extractNamedImports('import Foo from "./bar";', 2);
+      expect(res).toHaveLength(1);
+      expect(res[0]).toMatchObject({
+        specifier: "./bar",
+        importedName: "default",
+        localName: "Foo",
+        isDefault: true,
+      });
+    });
+
+    it("extracts namespace imports", () => {
+      const res = extractNamedImports('import * as Utils from "./utils";', 3);
+      expect(res).toHaveLength(1);
+      expect(res[0]).toMatchObject({
+        specifier: "./utils",
+        importedName: "*",
+        localName: "Utils",
+        isDefault: false,
+      });
+    });
+
+    it("extracts aliased and type imports", () => {
+      const aliased = extractNamedImports('import { A as B } from "./mod";', 4);
+      expect(aliased).toHaveLength(1);
+      expect(aliased[0]).toMatchObject({
+        specifier: "./mod",
+        importedName: "A",
+        localName: "B",
+      });
+
+      const typeImp = extractNamedImports('import type { MyType } from "./types";', 5);
+      expect(typeImp).toHaveLength(1);
+      expect(typeImp[0]).toMatchObject({
+        specifier: "./types",
+        importedName: "MyType",
+        localName: "MyType",
+      });
+    });
+
+    it("extracts mixed default and named imports", () => {
+      const res = extractNamedImports('import React, { useState, useEffect } from "react";', 6);
+      const names = res.map((i) => i.localName);
+      expect(names).toContain("useState");
+      expect(names).toContain("useEffect");
+    });
   });
 });

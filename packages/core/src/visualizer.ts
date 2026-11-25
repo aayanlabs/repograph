@@ -1,491 +1,697 @@
+import { findCycles } from "./query.js";
 import type { GraphStore } from "./storage.js";
 
+export interface DashboardOptions {
+  repositoryName?: string;
+  branch?: string;
+  aiEnabled?: boolean;
+}
+
+function escapeServerHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /**
- * Generate a self-contained interactive HTML dashboard showing the repository
- * code graph. The output is a single HTML string with embedded CSS and JS —
- * no external CDN dependencies.
+ * Generate a self-contained, enterprise-grade interactive HTML dashboard
+ * providing 5 distinct codebase intelligence visualization modes:
+ *  1. Architecture View (Default)
+ *  2. Dependency View
+ *  3. Symbol View
+ *  4. Impact Analysis View
+ *  5. Codebase Map (Squarified Treemap)
  */
-export function generateDashboardHtml(store: GraphStore): string {
+export function generateDashboardHtml(
+  store: GraphStore,
+  options: DashboardOptions = {},
+): string {
   const files = store.getFiles();
   const nodes = store.allNodes();
   const edges = store.allEdges();
   const stats = store.stats();
+  const metrics = store.getModuleMetrics();
+  const cycles = findCycles(store);
 
-  const filesJson = JSON.stringify(
-    files.map((f) => ({
+  const repoName = options.repositoryName ?? "Repository";
+  const branchName = options.branch ?? "main";
+  const safeRepoName = escapeServerHtml(repoName);
+  const safeBranchName = escapeServerHtml(branchName);
+
+  const payload = {
+    repositoryName: repoName,
+    branch: branchName,
+    stats,
+    files: files.map((f) => ({
       path: f.path,
-      language: f.language,
+      language: f.language ?? "other",
       size: f.size,
+      modifiedTimeMs: f.modifiedTimeMs,
     })),
-  );
-
-  const nodesJson = JSON.stringify(
-    nodes.map((n) => ({
+    nodes: nodes.map((n) => ({
       id: n.id,
       kind: n.kind,
       name: n.name,
       filePath: n.filePath,
       line: n.start.line,
+      column: n.start.column,
+      endLine: n.end.line,
+      endColumn: n.end.column,
       signature: n.signature,
+      source: n.source,
     })),
-  );
-
-  const edgesJson = JSON.stringify(
-    edges.map((e) => ({
+    edges: edges.map((e) => ({
       source: e.sourceId,
       target: e.targetId,
       kind: e.kind,
+      metadata: e.metadata,
     })),
-  );
+    metrics,
+    cycles: cycles.map((c) => c.cycle.map((n) => n.id)),
+  };
 
-  const statsJson = JSON.stringify(stats);
+  const payloadJson = JSON.stringify(payload).replace(/</g, "\\u003c");
 
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RepoGraph by aayanlabs — Interactive Code Graph</title>
+<title>RepoGraph by aayanlabs — Codebase Intelligence Platform</title>
 <style>
   :root {
-    --bg-dark: #090c15;
-    --panel-bg: rgba(17, 22, 37, 0.88);
-    --panel-border: rgba(48, 56, 80, 0.7);
-    --panel-header: rgba(26, 33, 54, 0.9);
-    --text-main: #e2e8f0;
-    --text-muted: #8b9bb4;
-    --accent-cyan: #38bdf8;
-    --accent-purple: #c084fc;
-    --accent-green: #34d399;
-    --accent-amber: #fbbf24;
-    --accent-red: #f87171;
-    --hover-bg: rgba(56, 189, 248, 0.12);
-    --active-bg: rgba(56, 189, 248, 0.22);
+    --bg-base: #0B0D12;
+    --bg-canvas: #0E121A;
+    --bg-panel: #11151D;
+    --bg-elevated: #171D27;
+    --border: #252D3A;
+    --border-subtle: #1C2330;
+    --border-focus: #55C5D9;
+    --text-primary: #E8EDF5;
+    --text-secondary: #929DAE;
+    --text-muted: #5E697C;
+    --accent-cyan: #55C5D9;
+    --accent-blue: #6689F5;
+    --accent-violet: #A78BFA;
+    --accent-teal: #2DD4BF;
+    --accent-green: #65C99A;
+    --accent-amber: #E8B66B;
+    --accent-danger: #EA7777;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    background: var(--bg-dark);
-    color: var(--text-main);
+    font-family: var(--font-sans);
+    background: var(--bg-base);
+    color: var(--text-primary);
     overflow: hidden;
     height: 100vh;
     width: 100vw;
     user-select: none;
+    -webkit-font-smoothing: antialiased;
   }
 
-  /* ---- Header ---- */
+  /* ---- Header / Top Navigation ---- */
   #header {
-    position: fixed; top: 12px; left: 16px; right: 16px; height: 54px;
-    background: var(--panel-bg);
-    backdrop-filter: blur(16px);
-    border: 1px solid var(--panel-border);
-    border-radius: 14px;
+    position: fixed; top: 10px; left: 14px; right: 14px; height: 50px;
+    background: rgba(17, 21, 29, 0.92);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 16px; z-index: 1000;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   }
-  .brand {
-    display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px;
-    letter-spacing: -0.4px; color: #fff;
-  }
+  .brand-group { display: flex; align-items: center; gap: 12px; }
   .brand-logo {
-    width: 28px; height: 28px; background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
-    border-radius: 8px; display: flex; align-items: center; justify-content: center;
-    font-size: 14px; font-weight: 900; color: #090c15; box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+    border-radius: 7px; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 900; color: #0B0D12;
+    box-shadow: 0 0 12px rgba(85, 197, 217, 0.35);
   }
-  .brand-sub { font-weight: 400; font-size: 12px; color: var(--text-muted); margin-left: 2px; }
+  .brand-text { display: flex; flex-direction: column; }
+  .brand-title { font-size: 14px; font-weight: 700; color: #FFF; letter-spacing: -0.3px; display: flex; align-items: center; gap: 6px; }
+  .brand-badge { font-size: 10px; background: rgba(85, 197, 217, 0.12); color: var(--accent-cyan); padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(85, 197, 217, 0.25); font-family: var(--font-mono); }
+  .repo-meta { font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+  .branch-pill { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-violet); background: rgba(167, 139, 250, 0.1); padding: 1px 6px; border-radius: 4px; font-size: 10px; }
 
-  .view-tabs {
-    display: flex; background: rgba(10, 14, 26, 0.7); padding: 3px; border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.05); gap: 2px;
+  /* Mode Switcher Tabs */
+  .mode-nav {
+    display: flex; background: rgba(11, 13, 18, 0.85); padding: 3px; border-radius: 8px;
+    border: 1px solid var(--border-subtle); gap: 2px;
   }
-  .tab-btn {
-    padding: 6px 14px; border-radius: 8px; border: none; background: transparent;
-    color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer;
-    transition: all 0.2s ease; display: flex; align-items: center; gap: 6px;
+  .mode-tab {
+    padding: 5px 12px; border-radius: 6px; border: none; background: transparent;
+    color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer;
+    transition: all 0.15s ease; display: flex; align-items: center; gap: 6px;
   }
-  .tab-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
-  .tab-btn.active { background: var(--accent-cyan); color: #090c15; font-weight: 700; box-shadow: 0 2px 8px rgba(56, 189, 248, 0.3); }
+  .mode-tab:hover { color: #FFF; background: rgba(255, 255, 255, 0.04); }
+  .mode-tab.active {
+    background: var(--bg-elevated); color: var(--accent-cyan);
+    border: 1px solid rgba(85, 197, 217, 0.3);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+  .mode-tab .tab-icon { font-size: 13px; }
 
-  .search-container { position: relative; flex: 1; max-width: 320px; margin: 0 16px; }
+  /* Search & Command Palette trigger */
+  .search-wrap {
+    position: relative; width: 280px; display: flex; align-items: center;
+  }
   .search-input {
-    width: 100%; padding: 7px 12px 7px 34px; background: rgba(9, 12, 21, 0.8);
-    border: 1px solid var(--panel-border); border-radius: 8px; color: #fff;
-    font-size: 12px; outline: none; transition: all 0.2s ease;
+    width: 100%; padding: 6px 32px 6px 28px; background: rgba(11, 13, 18, 0.9);
+    border: 1px solid var(--border); border-radius: 7px; color: #FFF;
+    font-size: 11px; outline: none; transition: all 0.15s ease;
   }
-  .search-input:focus { border-color: var(--accent-cyan); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2); }
-  .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 13px; color: var(--text-muted); }
-
-  .header-stats { display: flex; gap: 12px; font-size: 11px; }
-  .stat-pill {
-    background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06);
-    padding: 4px 10px; border-radius: 8px; color: var(--text-muted); font-weight: 500;
+  .search-input:focus { border-color: var(--accent-cyan); box-shadow: 0 0 0 2px rgba(85, 197, 217, 0.15); }
+  .search-icon { position: absolute; left: 8px; font-size: 12px; color: var(--text-muted); pointer-events: none; }
+  .search-shortcut {
+    position: absolute; right: 8px; font-size: 9px; color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border);
+    padding: 1px 4px; border-radius: 4px; font-family: var(--font-mono);
   }
-  .stat-pill strong { color: var(--accent-cyan); font-weight: 700; margin-left: 3px; }
 
-  /* ---- Main Layout Container ---- */
-  #main-container {
+  .header-actions { display: flex; align-items: center; gap: 8px; }
+  .hdr-btn {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    color: var(--text-secondary); padding: 5px 9px; border-radius: 6px;
+    font-size: 11px; cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: 5px;
+    transition: all 0.15s ease;
+  }
+  .hdr-btn:hover { color: #FFF; border-color: var(--text-secondary); }
+  .hdr-btn.active { color: var(--accent-cyan); border-color: var(--accent-cyan); background: rgba(85, 197, 217, 0.1); }
+
+  /* ---- Main Workspace Layout ---- */
+  #main-layout {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     display: flex; height: 100vh; width: 100vw;
   }
 
-  /* ---- Left Sidebar (Explorer & Filters) ---- */
+  /* ---- Left Sidebar (Explorer, Saved Views, Filters) ---- */
   #left-sidebar {
-    width: 310px; background: var(--panel-bg); backdrop-filter: blur(16px);
-    border-right: 1px solid var(--panel-border); margin-top: 76px; margin-bottom: 16px; margin-left: 16px;
-    border-radius: 14px; display: flex; flex-direction: column; z-index: 900;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); max-height: calc(100vh - 92px);
+    width: 320px; background: var(--bg-panel); backdrop-filter: blur(20px);
+    border-right: 1px solid var(--border); margin-top: 68px; margin-bottom: 12px; margin-left: 14px;
+    border-radius: 10px; display: flex; flex-direction: column; z-index: 900;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); max-height: calc(100vh - 80px);
     overflow: hidden;
   }
-  .sidebar-section { padding: 14px 16px; border-bottom: 1px solid var(--panel-border); }
-  .sidebar-title {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
-    color: var(--text-muted); font-weight: 700; margin-bottom: 10px;
+  .sidebar-section { padding: 12px 14px; border-bottom: 1px solid var(--border-subtle); }
+  .sidebar-section-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--text-muted); font-weight: 700; margin-bottom: 8px;
     display: flex; align-items: center; justify-content: space-between;
   }
 
-  /* Overview Counters */
-  .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  /* Stats grid */
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .stat-card {
-    background: rgba(9, 12, 21, 0.6); border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 8px; padding: 8px; text-align: center;
+    background: var(--bg-base); border: 1px solid var(--border-subtle);
+    border-radius: 6px; padding: 6px; text-align: center;
   }
-  .stat-card .val { font-size: 15px; font-weight: 800; color: #fff; }
-  .stat-card .lbl { font-size: 9px; text-transform: uppercase; color: var(--text-muted); margin-top: 2px; }
+  .stat-val { font-size: 13px; font-weight: 800; color: #FFF; font-family: var(--font-mono); }
+  .stat-lbl { font-size: 9px; text-transform: uppercase; color: var(--text-muted); margin-top: 1px; }
 
-  /* Language Bar */
-  .lang-bar-wrap { margin-top: 4px; }
-  .lang-bar { height: 6px; border-radius: 3px; display: flex; overflow: hidden; background: #1e2640; }
+  /* Language bar */
+  .lang-wrap { margin-top: 8px; }
+  .lang-bar { height: 4px; border-radius: 2px; display: flex; overflow: hidden; background: #181F2C; }
   .lang-seg { height: 100%; transition: width 0.3s; }
-  .lang-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 10px; }
-  .lang-item { display: flex; align-items: center; gap: 4px; color: var(--text-muted); }
-  .lang-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .lang-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 10px; }
+  .lang-item { display: flex; align-items: center; gap: 4px; color: var(--text-secondary); }
+  .lang-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 
-  /* Control Selects & Toggles */
-  .control-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 11px; }
-  .control-row label { color: var(--text-muted); }
-  .control-row select, .control-row button {
-    background: rgba(9, 12, 21, 0.8); border: 1px solid var(--panel-border);
-    color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 11px; outline: none;
-    cursor: pointer;
-  }
-
-  /* Kind Pills */
-  .kind-filter-grid { display: flex; flex-wrap: wrap; gap: 5px; }
+  /* Kind filter chips */
+  .chips-grid { display: flex; flex-wrap: wrap; gap: 4px; }
   .kind-chip {
-    padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 600;
-    cursor: pointer; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(9, 12, 21, 0.5);
-    color: var(--text-muted); transition: all 0.15s; display: flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--border); background: var(--bg-base);
+    color: var(--text-secondary); transition: all 0.15s; display: flex; align-items: center; gap: 4px;
   }
-  .kind-chip.active { background: var(--active-bg); border-color: var(--accent-cyan); color: #fff; }
-  .kind-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .kind-chip:hover { border-color: var(--text-secondary); color: #FFF; }
+  .kind-chip.active { background: rgba(85, 197, 217, 0.12); border-color: var(--accent-cyan); color: #FFF; }
+  .kind-dot { width: 5px; height: 5px; border-radius: 50%; }
 
-  /* Directory Tree Explorer */
-  .tree-container { flex: 1; overflow-y: auto; padding: 10px 14px; font-size: 12px; }
-  .tree-node {
+  /* Tree explorer */
+  .tree-container { flex: 1; overflow-y: auto; padding: 8px 10px; font-size: 11px; }
+  .tree-row {
     padding: 3px 6px; border-radius: 5px; cursor: pointer; display: flex;
-    align-items: center; gap: 6px; color: var(--text-muted); transition: background 0.15s;
+    align-items: center; gap: 6px; color: var(--text-secondary); transition: background 0.12s;
     white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
   }
-  .tree-node:hover { background: var(--hover-bg); color: #fff; }
-  .tree-node.active { background: var(--active-bg); color: var(--accent-cyan); font-weight: 600; }
-  .tree-indent { margin-left: 12px; }
+  .tree-row:hover { background: rgba(255, 255, 255, 0.04); color: #FFF; }
+  .tree-row.active { background: rgba(85, 197, 217, 0.15); color: var(--accent-cyan); font-weight: 600; }
   .tree-icon { font-size: 11px; opacity: 0.8; }
-  .tree-count { font-size: 10px; color: rgba(255, 255, 255, 0.35); margin-left: auto; }
+  .tree-badge { font-size: 9px; color: var(--text-muted); margin-left: auto; font-family: var(--font-mono); }
 
-  /* ---- Viewport Canvas ---- */
-  #viewport { flex: 1; position: relative; height: 100vh; width: 100vw; }
+  /* ---- Central Canvas Workspace ---- */
+  #viewport-area { flex: 1; position: relative; height: 100vh; width: 100vw; background: var(--bg-canvas); }
   #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: grab; }
   #canvas:active { cursor: grabbing; }
 
-  /* ---- Alternate Viewports (Treemap / Grid) ---- */
-  #treemap-view, #grid-view {
-    position: absolute; top: 76px; left: 342px; right: 16px; bottom: 16px;
-    background: var(--panel-bg); backdrop-filter: blur(16px);
-    border: 1px solid var(--panel-border); border-radius: 14px;
-    padding: 20px; overflow-y: auto; display: none; z-index: 800;
+  /* Mode Specific Views (Treemap & Codebase Map) */
+  #treemap-container {
+    position: absolute; top: 68px; left: 348px; right: 14px; bottom: 12px;
+    background: var(--bg-panel); backdrop-filter: blur(20px);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; display: none; flex-direction: column; z-index: 800;
   }
-
-  .treemap-node {
-    position: absolute; box-sizing: border-box; border: 1px solid rgba(9, 12, 21, 0.8);
-    border-radius: 6px; padding: 6px; overflow: hidden; transition: transform 0.15s, box-shadow 0.15s;
-    cursor: pointer; font-size: 11px; font-weight: 600; color: #fff;
+  .treemap-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .treemap-breadcrumbs { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .breadcrumb-item { cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+  .breadcrumb-item:hover { color: var(--accent-cyan); background: rgba(255, 255, 255, 0.04); }
+  .treemap-body { flex: 1; position: relative; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-subtle); }
+  .treemap-rect {
+    position: absolute; box-sizing: border-box; border: 1px solid #0E121A;
+    border-radius: 4px; padding: 6px; overflow: hidden; cursor: pointer;
     display: flex; flex-direction: column; justify-content: space-between;
+    transition: transform 0.1s, box-shadow 0.1s;
   }
-  .treemap-node:hover { transform: scale(1.01); z-index: 10; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-  .treemap-lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .treemap-sub { font-size: 9px; opacity: 0.7; font-weight: 400; }
+  .treemap-rect:hover { transform: scale(1.005); z-index: 20; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6); }
+  .treemap-name { font-size: 11px; font-weight: 700; color: #FFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .treemap-sub { font-size: 9px; color: rgba(255, 255, 255, 0.7); font-family: var(--font-mono); }
 
-  .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-  .grid-card {
-    background: rgba(9, 12, 21, 0.6); border: 1px solid var(--panel-border);
-    border-radius: 10px; padding: 14px; cursor: pointer; transition: all 0.2s;
+  /* Floating Canvas Controls (Top toolbar) */
+  #canvas-top-bar {
+    position: absolute; top: 68px; left: 348px;
+    background: rgba(17, 21, 29, 0.88); backdrop-filter: blur(16px);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 4px 8px; z-index: 950; display: flex; align-items: center; gap: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4); font-size: 11px;
   }
-  .grid-card:hover { border-color: var(--accent-cyan); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
-  .grid-card h4 { font-size: 13px; color: var(--accent-cyan); margin-bottom: 6px; word-break: break-all; }
-  .grid-card .meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 10px; }
+  .toolbar-select {
+    background: var(--bg-base); border: 1px solid var(--border);
+    color: var(--text-primary); padding: 3px 6px; border-radius: 5px;
+    font-size: 11px; outline: none; cursor: pointer;
+  }
 
-  /* ---- Floating Canvas Controls ---- */
-  #canvas-controls {
-    position: fixed; bottom: 20px; left: 342px;
-    background: var(--panel-bg); backdrop-filter: blur(16px);
-    border: 1px solid var(--panel-border); border-radius: 12px;
-    padding: 6px 12px; z-index: 950; display: flex; align-items: center; gap: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); font-size: 11px; color: var(--text-muted);
+  /* Floating Canvas Controls (Bottom toolbar) */
+  #canvas-bottom-bar {
+    position: absolute; bottom: 16px; left: 348px;
+    background: rgba(17, 21, 29, 0.88); backdrop-filter: blur(16px);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 4px 8px; z-index: 950; display: flex; align-items: center; gap: 6px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4); font-size: 11px;
   }
   .ctrl-btn {
-    background: rgba(9, 12, 21, 0.8); border: 1px solid var(--panel-border);
-    color: var(--text-main); padding: 5px 10px; border-radius: 7px; cursor: pointer;
-    font-size: 11px; font-weight: 600; transition: all 0.15s; display: flex; align-items: center; gap: 4px;
+    background: var(--bg-base); border: 1px solid var(--border);
+    color: var(--text-secondary); padding: 4px 8px; border-radius: 5px; cursor: pointer;
+    font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px;
+    transition: all 0.15s;
   }
-  .ctrl-btn:hover { background: var(--hover-bg); border-color: var(--accent-cyan); color: #fff; }
-  .ctrl-btn.active { background: var(--active-bg); border-color: var(--accent-cyan); color: var(--accent-cyan); }
+  .ctrl-btn:hover { background: var(--bg-elevated); color: #FFF; border-color: var(--text-secondary); }
+  .ctrl-btn.active { background: rgba(85, 197, 217, 0.12); color: var(--accent-cyan); border-color: var(--accent-cyan); }
 
-  /* ---- Right Sidebar (Inspector & Impact Analysis) ---- */
+  /* Minimap */
+  #minimap {
+    position: absolute; bottom: 16px; right: 14px; width: 180px; height: 120px;
+    background: rgba(17, 21, 29, 0.9); backdrop-filter: blur(16px);
+    border: 1px solid var(--border); border-radius: 8px; z-index: 950;
+    overflow: hidden; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  }
+  #minimap-canvas { width: 100%; height: 100%; }
+
+  /* Legend */
+  #legend-panel {
+    position: absolute; top: 68px; right: 14px;
+    background: rgba(17, 21, 29, 0.85); backdrop-filter: blur(16px);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; z-index: 950; font-size: 10px; color: var(--text-secondary);
+    display: flex; flex-direction: column; gap: 4px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-color { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ---- Right Contextual Inspector ---- */
   #right-inspector {
-    position: fixed; top: 76px; right: 16px; width: 360px;
-    background: var(--panel-bg); backdrop-filter: blur(20px);
-    border: 1px solid var(--panel-border); border-radius: 14px;
-    display: none; flex-direction: column; z-index: 950;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6); max-height: calc(100vh - 92px);
+    position: fixed; top: 68px; right: 14px; width: 380px;
+    background: var(--bg-panel); backdrop-filter: blur(24px);
+    border: 1px solid var(--border); border-radius: 10px;
+    display: none; flex-direction: column; z-index: 960;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65); max-height: calc(100vh - 80px);
     overflow: hidden;
   }
   .inspector-header {
-    padding: 16px; background: var(--panel-header); border-bottom: 1px solid var(--panel-border);
-    position: relative;
+    padding: 12px 14px; background: var(--bg-elevated); border-bottom: 1px solid var(--border);
+    position: relative; display: flex; justify-content: space-between; align-items: flex-start;
   }
+  .inspector-titles { max-width: 320px; }
+  .inspector-kind-badge {
+    font-size: 9px; text-transform: uppercase; font-weight: 700;
+    padding: 2px 5px; border-radius: 4px; display: inline-block; margin-bottom: 4px;
+    font-family: var(--font-mono);
+  }
+  .inspector-name { font-size: 15px; font-weight: 700; color: #FFF; word-break: break-all; }
+  .inspector-path { font-size: 11px; color: var(--text-muted); word-break: break-all; font-family: var(--font-mono); margin-top: 2px; }
   .inspector-close {
-    position: absolute; top: 14px; right: 14px; background: transparent; border: none;
-    color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 4px;
+    background: transparent; border: none; color: var(--text-muted);
+    font-size: 16px; cursor: pointer; padding: 2px; border-radius: 4px;
   }
-  .inspector-close:hover { color: #fff; }
-  .inspector-title { font-size: 15px; font-weight: 700; color: #fff; word-break: break-all; margin-bottom: 4px; }
-  .inspector-sub { font-size: 11px; color: var(--text-muted); word-break: break-all; }
+  .inspector-close:hover { color: #FFF; background: rgba(255, 255, 255, 0.05); }
 
-  .inspector-body { padding: 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px; }
+  .inspector-body { padding: 14px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 14px; }
 
-  /* Blast Radius Section */
-  .blast-box {
-    background: rgba(9, 12, 21, 0.6); border: 1px solid rgba(248, 113, 113, 0.3);
-    border-radius: 10px; padding: 12px;
+  /* Impact blast radius report block */
+  .blast-card {
+    background: var(--bg-base); border: 1px solid rgba(234, 119, 119, 0.35);
+    border-radius: 8px; padding: 12px;
   }
-  .blast-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-  .blast-head h5 { font-size: 12px; color: var(--accent-red); font-weight: 700; display: flex; align-items: center; gap: 5px; }
-  .blast-head .score { font-size: 12px; font-weight: 800; color: #fff; }
-  .blast-meter { height: 6px; background: #1e2640; border-radius: 3px; overflow: hidden; margin-bottom: 10px; }
-  .blast-fill { height: 100%; background: linear-gradient(90deg, var(--accent-amber), var(--accent-red)); transition: width 0.4s; }
+  .blast-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .blast-label { font-size: 11px; font-weight: 700; color: var(--accent-danger); display: flex; align-items: center; gap: 5px; }
+  .blast-score { font-size: 12px; font-weight: 800; font-family: var(--font-mono); color: #FFF; }
+  .blast-bar { height: 5px; background: #1C2330; border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
+  .blast-fill { height: 100%; transition: width 0.3s; }
+  .risk-low { background: var(--accent-green); }
+  .risk-medium { background: var(--accent-amber); }
+  .risk-high { background: var(--accent-danger); }
+  .risk-critical { background: linear-gradient(90deg, var(--accent-amber), var(--accent-danger)); }
 
-  .impact-list { list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto; }
-  .impact-item {
-    padding: 5px 8px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;
-    font-size: 11px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+  .rel-list { list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto; }
+  .rel-item {
+    padding: 5px 8px; background: var(--bg-base); border: 1px solid var(--border-subtle);
+    border-radius: 5px; font-size: 11px; display: flex; justify-content: space-between; align-items: center;
+    cursor: pointer; transition: all 0.12s;
   }
-  .impact-item:hover { background: var(--hover-bg); color: #fff; }
+  .rel-item:hover { border-color: var(--accent-cyan); background: rgba(85, 197, 217, 0.08); color: #FFF; }
+  .rel-kind-tag { font-size: 9px; padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.06); font-family: var(--font-mono); }
 
-  .symbol-list { list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
-  .symbol-item {
-    padding: 5px 8px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;
-    font-size: 11px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+  .code-preview {
+    background: var(--bg-base); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px; font-family: var(--font-mono); font-size: 10px;
+    color: var(--text-primary); max-height: 160px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
   }
-  .symbol-item:hover { background: var(--hover-bg); color: var(--accent-cyan); }
-  .symbol-kind-tag { font-size: 9px; padding: 2px 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); }
 
-  /* Utility scrollbar */
+  /* Modal / Dialog (Shortcuts & AI assistant) */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center; z-index: 2000;
+  }
+  .modal-content {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 12px; width: 540px; max-width: 90vw; padding: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+  }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .modal-title { font-size: 15px; font-weight: 700; color: #FFF; display: flex; align-items: center; gap: 8px; }
+
+  /* Context Menu */
+  #context-menu {
+    position: fixed; display: none; background: var(--bg-elevated);
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px;
+    z-index: 1500; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7); width: 180px;
+  }
+  .menu-item {
+    padding: 6px 10px; font-size: 11px; color: var(--text-secondary);
+    border-radius: 5px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+  }
+  .menu-item:hover { background: rgba(85, 197, 217, 0.15); color: #FFF; }
+
+  /* Scrollbars */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
 </style>
 </head>
 <body>
 
 <!-- Header -->
-<div id="header">
-  <div class="brand">
+<header id="header">
+  <div class="brand-group">
     <div class="brand-logo">RG</div>
-    <div>RepoGraph <span class="brand-sub">by aayanlabs</span></div>
+    <div class="brand-text">
+      <div class="brand-title">RepoGraph <span class="brand-badge">2.0</span></div>
+      <div class="repo-meta">
+        <span id="hdr-repo">${safeRepoName}</span>
+        <span class="branch-pill">⎇ ${safeBranchName}</span>
+      </div>
+    </div>
   </div>
 
-  <div class="view-tabs">
-    <button class="tab-btn active" id="tab-graph">🌐 Network Graph</button>
-    <button class="tab-btn" id="tab-treemap">📊 Treemap</button>
-    <button class="tab-btn" id="tab-grid">🗂 Grid View</button>
-  </div>
+  <!-- Five Distinct Modes Switcher -->
+  <nav class="mode-nav" aria-label="Visualization Modes">
+    <button class="mode-tab active" id="tab-architecture" data-mode="architecture">
+      <span class="tab-icon">🏛</span> Architecture
+    </button>
+    <button class="mode-tab" id="tab-dependency" data-mode="dependency">
+      <span class="tab-icon">🔗</span> Dependencies
+    </button>
+    <button class="mode-tab" id="tab-symbol" data-mode="symbol">
+      <span class="tab-icon">⚡</span> Symbols
+    </button>
+    <button class="mode-tab" id="tab-impact" data-mode="impact">
+      <span class="tab-icon">💥</span> Impact Analysis
+    </button>
+    <button class="mode-tab" id="tab-map" data-mode="codebase_map">
+      <span class="tab-icon">🗺</span> Codebase Map
+    </button>
+  </nav>
 
-  <div class="search-container">
+  <!-- Search / Command Palette Input -->
+  <div class="search-wrap">
     <span class="search-icon">🔍</span>
-    <input type="text" id="search-box" class="search-input" placeholder="Search files or symbols..." autocomplete="off">
+    <input type="text" id="global-search" class="search-input" placeholder="Search symbols, files, classes... (Ctrl+K)" autocomplete="off">
+    <span class="search-shortcut">/</span>
   </div>
 
-  <div class="header-stats">
-    <div class="stat-pill">Files <strong id="hdr-files">0</strong></div>
-    <div class="stat-pill">Symbols <strong id="hdr-symbols">0</strong></div>
-    <div class="stat-pill">Edges <strong id="hdr-edges">0</strong></div>
+  <!-- Actions -->
+  <div class="header-actions">
+    <button class="hdr-btn" id="btn-open-ai">🤖 AI Insights</button>
+    <button class="hdr-btn" id="btn-shortcuts" title="Keyboard Shortcuts (?)">⌨ ?</button>
   </div>
-</div>
+</header>
 
-<!-- Main Container -->
-<div id="main-container">
+<!-- Main Layout -->
+<div id="main-layout">
 
   <!-- Left Sidebar -->
-  <div id="left-sidebar">
+  <aside id="left-sidebar">
     <div class="sidebar-section">
-      <div class="sidebar-title">Repo Overview</div>
+      <div class="sidebar-section-title">Repository Intelligence</div>
       <div class="stats-grid">
-        <div class="stat-card"><div class="val" id="sb-files">0</div><div class="lbl">Files</div></div>
-        <div class="stat-card"><div class="val" id="sb-symbols">0</div><div class="lbl">Symbols</div></div>
-        <div class="stat-card"><div class="val" id="sb-edges">0</div><div class="lbl">Links</div></div>
+        <div class="stat-card"><div class="stat-val" id="sb-files">0</div><div class="stat-lbl">Files</div></div>
+        <div class="stat-card"><div class="stat-val" id="sb-symbols">0</div><div class="stat-lbl">Symbols</div></div>
+        <div class="stat-card"><div class="stat-val" id="sb-edges">0</div><div class="stat-lbl">Links</div></div>
+        <div class="stat-card"><div class="stat-val" id="sb-cycles" style="color:var(--accent-danger);">0</div><div class="stat-lbl">Cycles</div></div>
       </div>
-      <div class="lang-bar-wrap">
+      <div class="lang-wrap">
         <div class="lang-bar" id="lang-bar"></div>
         <div class="lang-legend" id="lang-legend"></div>
       </div>
     </div>
 
-    <div class="sidebar-section">
-      <div class="sidebar-title">Display Options</div>
-      <div class="control-row">
-        <label>Graph Scope</label>
-        <select id="sel-scope">
-          <option value="file">File Imports Graph (Fast)</option>
-          <option value="full">Full Symbol Graph</option>
-        </select>
-      </div>
-      <div class="control-row">
-        <label>Color Nodes By</label>
-        <select id="sel-color-mode">
-          <option value="folder">Folder Path</option>
-          <option value="kind">Node Kind</option>
-          <option value="lang">Language</option>
-        </select>
-      </div>
+    <!-- Active Mode Configuration & Filters -->
+    <div class="sidebar-section" id="mode-controls-section">
+      <div class="sidebar-section-title">Mode Controls</div>
+      <div id="mode-specific-options"></div>
     </div>
 
     <div class="sidebar-section">
-      <div class="sidebar-title">Node Kind Filters</div>
-      <div class="kind-filter-grid" id="kind-chips"></div>
+      <div class="sidebar-section-title">Symbol Kind Filter</div>
+      <div class="chips-grid" id="kind-chips"></div>
     </div>
 
-    <div class="sidebar-title" style="padding: 12px 16px 4px 16px;">Directory Explorer</div>
-    <div class="tree-container" id="folder-tree"></div>
-  </div>
+    <div class="sidebar-section-title" style="padding:10px 14px 4px 14px;">Directory Tree</div>
+    <div class="tree-container" id="dir-tree"></div>
+  </aside>
 
-  <!-- Viewport Canvas -->
-  <div id="viewport">
+  <!-- Central Viewport -->
+  <main id="viewport-area">
     <canvas id="canvas"></canvas>
 
-    <!-- Alternative Viewports -->
-    <div id="treemap-view"></div>
-    <div id="grid-view"><div class="grid-cards" id="grid-cards-container"></div></div>
-
-    <!-- Floating Canvas Controls -->
-    <div id="canvas-controls">
-      <button class="ctrl-btn" id="btn-recenter">🎯 Recenter</button>
-      <button class="ctrl-btn" id="btn-fit">📐 Fit View</button>
-      <button class="ctrl-btn active" id="btn-toggle-hulls">🔮 Folder Hulls</button>
-      <button class="ctrl-btn active" id="btn-toggle-labels">🏷 Labels</button>
-      <span style="margin-left: 8px;" id="status-vis-count">0 visible</span>
+    <!-- Codebase Map / Treemap View -->
+    <div id="treemap-container">
+      <div class="treemap-header">
+        <div class="treemap-breadcrumbs" id="treemap-breadcrumbs">
+          <span class="breadcrumb-item" data-path="">root</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-secondary);">Area represents file size (KB)</div>
+      </div>
+      <div class="treemap-body" id="treemap-body"></div>
     </div>
-  </div>
 
-  <!-- Right Inspector & Impact Panel -->
-  <div id="right-inspector">
+    <!-- Floating Top Toolbar -->
+    <div id="canvas-top-bar">
+      <span>Layout:</span>
+      <select id="layout-select" class="toolbar-select">
+        <option value="clustered">Directory Clustered</option>
+        <option value="dagre">Layered DAG</option>
+        <option value="radial">Concentric Radial</option>
+      </select>
+      <span style="color:var(--border);">|</span>
+      <span>Color By:</span>
+      <select id="color-select" class="toolbar-select">
+        <option value="kind">Symbol Kind</option>
+        <option value="folder">Directory Path</option>
+        <option value="lang">Language</option>
+      </select>
+    </div>
+
+    <!-- Floating Bottom Toolbar -->
+    <div id="canvas-bottom-bar">
+      <button class="ctrl-btn" id="btn-fit" title="Zoom to Fit (F)">📐 Fit</button>
+      <button class="ctrl-btn" id="btn-recenter" title="Recenter">🎯 Center</button>
+      <button class="ctrl-btn active" id="btn-hulls" title="Toggle Cluster Hulls (H)">🔮 Clusters</button>
+      <button class="ctrl-btn active" id="btn-labels" title="Toggle Labels (L)">🏷 Labels</button>
+      <button class="ctrl-btn" id="btn-focus" title="Focus Selected Neighborhood">🔍 Focus</button>
+      <span style="color:var(--border); margin:0 4px;">|</span>
+      <span id="canvas-status" style="color:var(--text-muted); font-size:10px;">Ready</span>
+    </div>
+
+    <!-- Floating Legend -->
+    <div id="legend-panel">
+      <div style="font-weight:700; color:#FFF; margin-bottom:2px;">Legend</div>
+      <div class="legend-item"><div class="legend-color" style="background:#5B7B9A"></div><span>File</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#55C5D9"></div><span>Function / Component</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#A78BFA"></div><span>Class / Interface</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#EA7777"></div><span>Circular Dependency</span></div>
+    </div>
+
+    <!-- Minimap -->
+    <div id="minimap">
+      <canvas id="minimap-canvas"></canvas>
+    </div>
+  </main>
+
+  <!-- Right Contextual Inspector -->
+  <aside id="right-inspector">
     <div class="inspector-header">
-      <button class="inspector-close" id="btn-close-inspector">✕</button>
-      <div class="inspector-title" id="insp-title">Select a Node</div>
-      <div class="inspector-sub" id="insp-sub">Click any node or file to inspect impact</div>
+      <div class="inspector-titles">
+        <span class="inspector-kind-badge" id="insp-badge">FILE</span>
+        <div class="inspector-name" id="insp-name">Select an Element</div>
+        <div class="inspector-path" id="insp-path">Click any node to inspect properties</div>
+      </div>
+      <button class="inspector-close" id="insp-close" aria-label="Close Inspector">✕</button>
     </div>
-    <div class="inspector-body" id="insp-body">
-      <!-- Injected dynamically -->
-    </div>
-  </div>
+    <div class="inspector-body" id="insp-body"></div>
+  </aside>
 
 </div>
+
+<!-- Right-click Context Menu -->
+<div id="context-menu">
+  <div class="menu-item" id="ctx-inspect">🔍 Inspect Details</div>
+  <div class="menu-item" id="ctx-impact">💥 Analyze Impact</div>
+  <div class="menu-item" id="ctx-focus">🎯 Focus Neighborhood</div>
+  <div class="menu-item" id="ctx-copy-path">📋 Copy Path</div>
+</div>
+
+<!-- AI Insights Modal -->
+<div class="modal-overlay" id="ai-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div class="modal-title">🤖 RepoGraph Intelligence Assistant</div>
+      <button class="inspector-close" id="ai-modal-close">✕</button>
+    </div>
+    <div style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">
+      Grounded architectural and dependency query assistant. No code is transmitted externally without local consent.
+    </div>
+    <div style="display:flex; gap:6px; margin-bottom:12px;">
+      <button class="ctrl-btn" id="ai-btn-explain">🏛 Explain Architecture</button>
+      <button class="ctrl-btn" id="ai-btn-cycles">⭕ Analyze Circular Imports</button>
+      <button class="ctrl-btn" id="ai-btn-hotspots">🔥 Identify Coupled Hubs</button>
+    </div>
+    <div id="ai-output" class="code-preview" style="max-height:260px; min-height:140px; padding:12px; font-size:11px; line-height:1.5;">
+Select an action above to generate a grounded architectural analysis of this repository.
+    </div>
+  </div>
+</div>
+
+<!-- Keyboard Shortcuts Modal -->
+<div class="modal-overlay" id="shortcuts-modal">
+  <div class="modal-content" style="width:400px;">
+    <div class="modal-header">
+      <div class="modal-title">⌨ Keyboard Shortcuts</div>
+      <button class="inspector-close" id="shortcuts-modal-close">✕</button>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px; font-size:11px;">
+      <div style="display:flex; justify-content:space-between;"><span>Focus Search</span><kbd class="brand-badge">/</kbd> or <kbd class="brand-badge">Ctrl+K</kbd></div>
+      <div style="display:flex; justify-content:space-between;"><span>Switch Modes (1-5)</span><kbd class="brand-badge">1, 2, 3, 4, 5</kbd></div>
+      <div style="display:flex; justify-content:space-between;"><span>Zoom to Fit</span><kbd class="brand-badge">F</kbd> or <kbd class="brand-badge">Space</kbd></div>
+      <div style="display:flex; justify-content:space-between;"><span>Toggle Cluster Hulls</span><kbd class="brand-badge">H</kbd></div>
+      <div style="display:flex; justify-content:space-between;"><span>Toggle Labels</span><kbd class="brand-badge">L</kbd></div>
+      <div style="display:flex; justify-content:space-between;"><span>Close / Clear Selection</span><kbd class="brand-badge">Esc</kbd></div>
+    </div>
+  </div>
+</div>
+
+<!-- Embedded Graph Data Payload -->
+<script id="repograph-data" type="application/json">
+${payloadJson}
+</script>
 
 <script>
 (function() {
   "use strict";
 
-  const rawFiles = ${filesJson};
-  const rawNodes = ${nodesJson};
-  const rawEdges = ${edgesJson};
-  const rawStats = ${statsJson};
+  /* -------------------------------------------------------------------------- */
+  /* 1. Data Ingestion & Indices                                                */
+  /* -------------------------------------------------------------------------- */
+  const payloadEl = document.getElementById("repograph-data");
+  const DATA = JSON.parse(payloadEl.textContent || "{}");
 
-  /* Color Palette Maps */
+  const files = DATA.files || [];
+  const nodes = DATA.nodes || [];
+  const edges = DATA.edges || [];
+  const metrics = DATA.metrics || [];
+  const cycles = DATA.cycles || [];
+
+  const fileByPath = new Map(files.map(f => [f.path, f]));
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const metricsByPath = new Map(metrics.map(m => [m.filePath, m]));
+
+  // Symbol kinds and colors
   const KIND_COLORS = {
-    file: "#38bdf8",
-    directory: "#94a3b8",
-    function: "#60a5fa",
-    class: "#c084fc",
-    method: "#818cf8",
-    interface: "#34d399",
-    type: "#fbbf24",
-    variable: "#f87171",
-    parameter: "#fb923c",
-    component: "#f472b6",
-    import: "#22d3ee",
-    export: "#a78bfa"
+    file: "#5B7B9A",
+    directory: "#4B6584",
+    function: "#55C5D9",
+    class: "#A78BFA",
+    method: "#6689F5",
+    interface: "#2DD4BF",
+    type: "#E8B66B",
+    variable: "#F59E0B",
+    parameter: "#FB923C",
+    component: "#65C99A",
+    import: "#38BDF8",
+    export: "#C084FC"
   };
 
   const LANG_COLORS = {
-    typescript: "#3178c6",
-    javascript: "#f7df1e",
+    typescript: "#3178C6",
+    tsx: "#2B7489",
+    javascript: "#F7DF1E",
+    jsx: "#F7DF1E",
     python: "#3572A5",
     go: "#00ADD8",
-    vue: "#41b883",
-    svelte: "#ff3e00",
-    json: "#cbd5e1",
-    html: "#e34c26",
-    css: "#563d7c",
-    other: "#64748b"
+    vue: "#41B883",
+    svelte: "#FF3E00",
+    json: "#CBD5E1",
+    html: "#E34C26",
+    css: "#563D7C",
+    other: "#64748B"
   };
 
-  /* ---- State Engine ---- */
-  let activeTab = "graph"; // graph, treemap, grid
-  let graphScope = "file"; // file, full
-  let colorMode = "folder"; // folder, kind, lang
-  let activeFolderFilter = null;
-  let showHulls = true;
-  let showLabels = true;
-  let activeKindFilters = new Set(Object.keys(KIND_COLORS));
-  let searchTerm = "";
+  /* Stats display */
+  document.getElementById("sb-files").textContent = files.length;
+  document.getElementById("sb-symbols").textContent = nodes.length;
+  document.getElementById("sb-edges").textContent = edges.length;
+  document.getElementById("sb-cycles").textContent = cycles.length;
 
-  /* Pre-process Data Graphs */
-  const fileMap = {};
-  rawFiles.forEach(f => fileMap[f.path] = f);
-
-  // Map Node IDs and File Node IDs to FilePaths
-  const nodeToFileMap = {};
-  rawNodes.forEach(n => nodeToFileMap[n.id] = n.filePath);
-  rawFiles.forEach(f => {
-    nodeToFileMap["file:" + f.path] = f.path;
-    nodeToFileMap[f.path] = f.path;
-  });
-
-  // Stats Header Injection
-  document.getElementById("hdr-files").textContent = rawFiles.length;
-  document.getElementById("hdr-symbols").textContent = rawNodes.length;
-  document.getElementById("hdr-edges").textContent = rawEdges.length;
-
-  document.getElementById("sb-files").textContent = rawFiles.length;
-  document.getElementById("sb-symbols").textContent = rawNodes.length;
-  document.getElementById("sb-edges").textContent = rawEdges.length;
-
-  /* Render Language Distribution Bar */
+  /* Language distribution bar */
   const langCounts = {};
-  rawFiles.forEach(f => {
+  files.forEach(f => {
     const l = (f.language || "other").toLowerCase();
     langCounts[l] = (langCounts[l] || 0) + 1;
   });
-
   const langBar = document.getElementById("lang-bar");
   const langLegend = document.getElementById("lang-legend");
-  langBar.innerHTML = ""; langLegend.innerHTML = "";
-  const totalF = Math.max(rawFiles.length, 1);
-
+  const totalFiles = Math.max(files.length, 1);
   Object.entries(langCounts).sort((a,b) => b[1] - a[1]).forEach(([lang, cnt]) => {
-    const pct = ((cnt / totalF) * 100).toFixed(1);
+    const pct = ((cnt / totalFiles) * 100).toFixed(1);
     const col = LANG_COLORS[lang] || LANG_COLORS.other;
 
     const seg = document.createElement("div");
@@ -497,36 +703,39 @@ export function generateDashboardHtml(store: GraphStore): string {
 
     const leg = document.createElement("div");
     leg.className = "lang-item";
-    leg.innerHTML = '<span class="lang-dot" style="background:'+col+'"></span>' + lang + ' ' + pct + '%';
+    leg.innerHTML = '<span class="lang-dot" style="background:'+col+'"></span>' + escapeHtml(lang) + ' ' + pct + '%';
     langLegend.appendChild(leg);
   });
 
-  /* Render Kind Filters Chips */
+  /* Kind filter chips */
+  const uniqueKinds = [...new Set(nodes.map(n => n.kind))];
+  const activeKinds = new Set(uniqueKinds);
   const kindChipsEl = document.getElementById("kind-chips");
-  const uniqueKinds = [...new Set(rawNodes.map(n => n.kind))];
-  kindChipsEl.innerHTML = uniqueKinds.map(k => {
+  uniqueKinds.forEach(k => {
     const col = KIND_COLORS[k] || "#94a3b8";
-    return '<div class="kind-chip active" data-kind="'+k+'"><span class="kind-dot" style="background:'+col+'"></span>'+k+'</div>';
-  }).join('');
-
-  kindChipsEl.querySelectorAll(".kind-chip").forEach(chip => {
+    const chip = document.createElement("div");
+    chip.className = "kind-chip active";
+    chip.innerHTML = '<span class="kind-dot" style="background:'+col+'"></span>' + escapeHtml(k);
     chip.addEventListener("click", () => {
-      const k = chip.getAttribute("data-kind");
-      if (activeKindFilters.has(k)) {
-        activeKindFilters.delete(k);
+      if (activeKinds.has(k)) {
+        activeKinds.delete(k);
         chip.classList.remove("active");
       } else {
-        activeKindFilters.add(k);
+        activeKinds.add(k);
         chip.classList.add("active");
       }
-      rebuildGraph();
+      rebuildActiveGraph();
     });
+    kindChipsEl.appendChild(chip);
   });
 
-  /* ---- Build Directory Tree Explorer ---- */
-  function buildDirTree() {
+  /* -------------------------------------------------------------------------- */
+  /* 2. Directory Tree Builder                                                  */
+  /* -------------------------------------------------------------------------- */
+  let activeFolderFilter = null;
+  function buildTree() {
     const tree = {};
-    rawFiles.forEach(f => {
+    files.forEach(f => {
       const parts = f.path.split("/");
       let curr = tree;
       for (let i = 0; i < parts.length; i++) {
@@ -541,385 +750,478 @@ export function generateDashboardHtml(store: GraphStore): string {
       }
     });
 
-    const treeEl = document.getElementById("folder-tree");
+    const treeEl = document.getElementById("dir-tree");
     treeEl.innerHTML = "";
 
-    function renderTreeLevel(obj, parentPath, depth) {
+    function renderBranch(obj, parentPath, depth) {
       const keys = Object.keys(obj).filter(k => k !== "__file" && k !== "__count").sort();
       keys.forEach(k => {
         const fullPath = parentPath ? parentPath + "/" + k : k;
         const item = obj[k];
         const isFile = !!item.__file;
 
-        const el = document.createElement("div");
-        el.className = "tree-node";
-        el.style.paddingLeft = (depth * 12 + 6) + "px";
-        el.innerHTML = '<span class="tree-icon">' + (isFile ? '📄' : '📁') + '</span><span>' + k + '</span>' +
-                       (!isFile ? '<span class="tree-count">' + item.__count + '</span>' : '');
+        const row = document.createElement("div");
+        row.className = "tree-row";
+        row.style.paddingLeft = (depth * 12 + 6) + "px";
+        row.innerHTML = '<span class="tree-icon">' + (isFile ? '📄' : '📁') + '</span><span>' + escapeHtml(k) + '</span>' +
+                        (!isFile ? '<span class="tree-badge">' + item.__count + '</span>' : '');
 
-        el.addEventListener("click", (e) => {
+        row.addEventListener("click", (e) => {
           e.stopPropagation();
-          document.querySelectorAll(".tree-node").forEach(n => n.classList.remove("active"));
+          document.querySelectorAll(".tree-row").forEach(r => r.classList.remove("active"));
           if (activeFolderFilter === fullPath) {
             activeFolderFilter = null;
           } else {
             activeFolderFilter = fullPath;
-            el.classList.add("active");
+            row.classList.add("active");
           }
-          rebuildGraph();
+          rebuildActiveGraph();
         });
 
-        treeEl.appendChild(el);
-        if (!isFile) {
-          renderTreeLevel(item, fullPath, depth + 1);
-        }
+        treeEl.appendChild(row);
+        if (!isFile) renderBranch(item, fullPath, depth + 1);
       });
     }
-
-    renderTreeLevel(tree, "", 0);
+    renderBranch(tree, "", 0);
   }
-  buildDirTree();
+  buildTree();
 
-  /* ---- Graph Aggregation Engine (File Graph vs Full Graph) ---- */
+  /* -------------------------------------------------------------------------- */
+  /* 3. Five Mode Engine & Graph Filtering                                      */
+  /* -------------------------------------------------------------------------- */
+  let currentMode = "architecture"; // architecture, dependency, symbol, impact, codebase_map
+  let currentLayout = "clustered"; // clustered, dagre, radial
+  let colorMode = "kind"; // kind, folder, lang
+  let impactDepth = 3;
+  let impactTargetId = null;
+  let symbolRootId = null;
+  let showHulls = true;
+  let showLabels = true;
+  let focusMode = false;
+  let searchTerm = "";
+
   let activeNodes = [];
   let activeEdges = [];
   let positions = [];
-  let nodeIndexMap = {};
-  let folderHulls = [];
-  let adjMap = {};
+  let nodeIndexMap = new Map();
+  let adjMap = new Map();
 
-  function rebuildGraph() {
-    nodeIndexMap = {};
-    adjMap = {};
+  function rebuildActiveGraph() {
+    nodeIndexMap.clear();
+    adjMap.clear();
 
-    if (graphScope === "file") {
-      /* File-Level Aggregated Import Graph */
-      const fileNodesMap = {};
-      rawFiles.forEach(f => {
-        if (activeFolderFilter && !f.path.startsWith(activeFolderFilter)) return;
-        fileNodesMap[f.path] = {
-          id: f.path,
-          kind: "file",
-          name: f.path.split("/").pop(),
-          filePath: f.path,
-          line: 1,
-          size: f.size,
-          lang: f.language || "other"
-        };
-      });
+    const treemapContainer = document.getElementById("treemap-container");
+    if (currentMode === "codebase_map") {
+      treemapContainer.style.display = "flex";
+      renderCodebaseTreemap();
+      return;
+    } else {
+      treemapContainer.style.display = "none";
+    }
 
-      // Aggregate All Cross-File Edges (both file imports AND symbol-to-symbol cross-file links)
-      const aggregatedEdges = [];
-      const edgeSet = new Set();
+    if (currentMode === "architecture") {
+      // Architecture Mode: package & directory hubs + files with degree clustering
+      const fileNodes = files.filter(f => !activeFolderFilter || f.path.startsWith(activeFolderFilter)).map(f => ({
+        id: "file:" + f.path,
+        kind: "file",
+        name: f.path.split("/").pop(),
+        filePath: f.path,
+        line: 1,
+        size: f.size,
+        lang: f.language,
+        cluster: f.path.split("/")[0] || "root"
+      }));
 
-      rawEdges.forEach(e => {
-        const sFile = nodeToFileMap[e.source];
-        const tFile = nodeToFileMap[e.target];
-        if (sFile && tFile && sFile !== tFile && fileNodesMap[sFile] && fileNodesMap[tFile]) {
-          const key = sFile + "-->" + tFile;
-          if (!edgeSet.has(key)) {
-            edgeSet.add(key);
-            aggregatedEdges.push({ source: sFile, target: tFile, kind: e.kind });
+      const activeFileSet = new Set(fileNodes.map(n => n.id));
+      const crossEdges = [];
+      const seenEdges = new Set();
+
+      edges.forEach(e => {
+        let sFile = nodeById.get(e.source)?.filePath || (e.source.startsWith("file:") ? e.source.slice(5) : null);
+        let tFile = nodeById.get(e.target)?.filePath || (e.target.startsWith("file:") ? e.target.slice(5) : null);
+        if (sFile && tFile && sFile !== tFile) {
+          const sId = "file:" + sFile;
+          const tId = "file:" + tFile;
+          if (activeFileSet.has(sId) && activeFileSet.has(tId)) {
+            const k = sId + "->" + tId;
+            if (!seenEdges.has(k)) {
+              seenEdges.add(k);
+              crossEdges.push({ source: sId, target: tId, kind: e.kind });
+            }
           }
         }
       });
 
-      activeNodes = Object.values(fileNodesMap);
-      activeEdges = aggregatedEdges;
-    } else {
-      /* Full Symbol Graph */
-      activeNodes = rawNodes.filter(n => {
-        if (activeFolderFilter && !n.filePath.startsWith(activeFolderFilter)) return false;
-        if (!activeKindFilters.has(n.kind)) return false;
-        return true;
+      activeNodes = fileNodes;
+      activeEdges = crossEdges;
+    } else if (currentMode === "dependency") {
+      // Dependency Mode: Direct file import/export graph with cycles
+      const fileNodes = files.filter(f => !activeFolderFilter || f.path.startsWith(activeFolderFilter)).map(f => ({
+        id: "file:" + f.path,
+        kind: "file",
+        name: f.path.split("/").pop(),
+        filePath: f.path,
+        line: 1,
+        size: f.size,
+        lang: f.language,
+        cluster: f.path.split("/")[0] || "root"
+      }));
+
+      const activeFileSet = new Set(fileNodes.map(n => n.id));
+      activeNodes = fileNodes;
+      activeEdges = edges.filter(e => e.kind === "imports" && activeFileSet.has(e.source) && activeFileSet.has(e.target));
+    } else if (currentMode === "symbol") {
+      // Symbol Mode: Progressive symbol hierarchy starting from selected or active file
+      let candidateNodes = nodes.filter(n => activeKinds.has(n.kind));
+      if (activeFolderFilter) {
+        candidateNodes = candidateNodes.filter(n => n.filePath.startsWith(activeFolderFilter));
+      }
+      if (symbolRootId) {
+        const root = nodeById.get(symbolRootId);
+        if (root) {
+          candidateNodes = candidateNodes.filter(n => n.filePath === root.filePath);
+        }
+      }
+      const set = new Set(candidateNodes.map(n => n.id));
+      activeNodes = candidateNodes;
+      activeEdges = edges.filter(e => set.has(e.source) && set.has(e.target));
+    } else if (currentMode === "impact") {
+      // Impact Mode: Blast radius expansion from selected node
+      const target = impactTargetId ? (nodeById.get(impactTargetId) || fileByPath.get(impactTargetId)) : null;
+      if (!target) {
+        // Default to highest centrality file if none selected
+        const topFile = files[0];
+        if (topFile) impactTargetId = "file:" + topFile.path;
+      }
+
+      const impactedNodeIds = new Set();
+      const startId = impactTargetId || (files[0] ? "file:" + files[0].path : "");
+      impactedNodeIds.add(startId);
+
+      // BFS incoming
+      let frontier = [startId];
+      for (let hop = 0; hop < impactDepth && frontier.length > 0; hop++) {
+        const next = [];
+        frontier.forEach(curr => {
+          edges.filter(e => e.target === curr).forEach(e => {
+            if (!impactedNodeIds.has(e.source)) {
+              impactedNodeIds.add(e.source);
+              next.push(e.source);
+            }
+          });
+        });
+        frontier = next;
+      }
+
+      activeNodes = [];
+      impactedNodeIds.forEach(id => {
+        const n = nodeById.get(id);
+        if (n) activeNodes.push(n);
+        else if (id.startsWith("file:")) {
+          const p = id.slice(5);
+          const f = fileByPath.get(p);
+          if (f) activeNodes.push({ id, kind: "file", name: p.split("/").pop(), filePath: p });
+        }
       });
 
-      const activeSet = new Set(activeNodes.map(n => n.id));
-      activeEdges = rawEdges.filter(e => activeSet.has(e.source) && activeSet.has(e.target));
+      activeEdges = edges.filter(e => impactedNodeIds.has(e.source) && impactedNodeIds.has(e.target));
     }
 
-    /* Search Filtering */
-    if (searchTerm) {
-      const st = searchTerm.toLowerCase();
-      activeNodes = activeNodes.filter(n => n.name.toLowerCase().includes(st) || n.filePath.toLowerCase().includes(st));
-      const sSet = new Set(activeNodes.map(n => n.id));
-      activeEdges = activeEdges.filter(e => sSet.has(e.source) && sSet.has(e.target));
-    }
-
-    activeNodes.forEach((n, i) => nodeIndexMap[n.id] = i);
-
-    activeEdges.forEach(e => {
-      if (!adjMap[e.source]) adjMap[e.source] = [];
-      if (!adjMap[e.target]) adjMap[e.target] = [];
-      adjMap[e.source].push({ peer: e.target, dir: "out", kind: e.kind });
-      adjMap[e.target].push({ peer: e.source, dir: "in", kind: e.kind });
+    // Build Adjacency and Index Maps
+    activeNodes.forEach((n, idx) => {
+      nodeIndexMap.set(n.id, idx);
+      adjMap.set(n.id, []);
     });
 
-    document.getElementById("status-vis-count").textContent = activeNodes.length + " nodes, " + activeEdges.length + " links";
+    activeEdges.forEach(e => {
+      if (adjMap.has(e.source)) adjMap.get(e.source).push({ peer: e.target, dir: "out", kind: e.kind });
+      if (adjMap.has(e.target)) adjMap.get(e.target).push({ peer: e.source, dir: "in", kind: e.kind });
+    });
 
-    initLayoutPositions();
+    document.getElementById("canvas-status").textContent = activeNodes.length + " nodes, " + activeEdges.length + " links";
+
+    computeDeterministicPositions();
     resetSimulation();
   }
 
-  /* ---- Physics & Cluster Layout Engine ---- */
-  let alpha = 1.0;
-  const N_TOTAL = () => activeNodes.length;
+  /* -------------------------------------------------------------------------- */
+  /* 4. Deterministic Layout Engine (Clustered, Dagre, Radial)                   */
+  /* -------------------------------------------------------------------------- */
+  function deterministicHash(str) {
+    let hash = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = (hash * 16777619) >>> 0;
+    }
+    return hash;
+  }
 
-  function initLayoutPositions() {
-    const N = N_TOTAL();
+  function computeDeterministicPositions() {
+    const N = activeNodes.length;
     positions = new Array(N);
 
-    // Separate connected vs isolated nodes
-    const connectedIdx = [];
-    const isolatedIdx = [];
+    if (currentLayout === "dagre") {
+      // Layered topological ranking layout
+      const inDegree = new Map();
+      activeNodes.forEach(n => inDegree.set(n.id, 0));
+      activeEdges.forEach(e => {
+        if (inDegree.has(e.target)) inDegree.set(e.target, inDegree.get(e.target) + 1);
+      });
 
-    for (let i = 0; i < N; i++) {
-      const id = activeNodes[i].id;
-      const deg = (adjMap[id] || []).length;
-      if (deg > 0) connectedIdx.push(i);
-      else isolatedIdx.push(i);
+      const layers = [];
+      let currentLayer = activeNodes.filter(n => inDegree.get(n.id) === 0);
+      if (currentLayer.length === 0) currentLayer = [activeNodes[0]].filter(Boolean);
+      const visited = new Set(currentLayer.map(n => n.id));
+      layers.push(currentLayer);
+
+      while (visited.size < N) {
+        const nextLayer = [];
+        currentLayer.forEach(n => {
+          (adjMap.get(n.id) || []).filter(e => e.dir === "out").forEach(e => {
+            if (!visited.has(e.peer)) {
+              visited.add(e.peer);
+              const peerNode = nodeById.get(e.peer) || activeNodes[nodeIndexMap.get(e.peer)];
+              if (peerNode) nextLayer.push(peerNode);
+            }
+          });
+        });
+        if (nextLayer.length === 0) {
+          const unvis = activeNodes.filter(n => !visited.has(n.id));
+          if (unvis.length > 0) {
+            visited.add(unvis[0].id);
+            nextLayer.push(unvis[0]);
+          } else break;
+        }
+        layers.push(nextLayer);
+        currentLayer = nextLayer;
+      }
+
+      const layerSpacingY = 120;
+      const nodeSpacingX = 140;
+      layers.forEach((layer, lIdx) => {
+        const startX = - ((layer.length - 1) * nodeSpacingX) / 2;
+        layer.forEach((n, nIdx) => {
+          const idx = nodeIndexMap.get(n.id);
+          if (idx !== undefined) {
+            positions[idx] = { x: startX + nIdx * nodeSpacingX, y: (lIdx - layers.length / 2) * layerSpacingY, vx: 0, vy: 0, fixed: true };
+          }
+        });
+      });
+      return;
     }
 
-    // Folder Cluster Centers for connected nodes
-    const folderClusters = {};
-    let cCount = 0;
-    connectedIdx.forEach(i => {
-      const parts = activeNodes[i].filePath.split("/");
-      const folder = parts.length > 1 ? parts.slice(0, Math.min(2, parts.length - 1)).join("/") : "root";
-      if (folderClusters[folder] === undefined) folderClusters[folder] = cCount++;
+    if (currentLayout === "radial") {
+      // Concentric circles from center hub
+      const centerNode = activeNodes[0];
+      const radiusStep = 100;
+      activeNodes.forEach((n, i) => {
+        if (i === 0) {
+          positions[i] = { x: 0, y: 0, vx: 0, vy: 0 };
+        } else {
+          const ring = Math.floor(Math.sqrt(i));
+          const countInRing = ring * 6;
+          const angle = ((i % countInRing) / countInRing) * Math.PI * 2;
+          positions[i] = { x: Math.cos(angle) * ring * radiusStep, y: Math.sin(angle) * ring * radiusStep, vx: 0, vy: 0 };
+        }
+      });
+      return;
+    }
+
+    // Default: Deterministic Directory Clustered Force Layout
+    const clusters = new Map();
+    activeNodes.forEach((n, idx) => {
+      const folder = n.filePath.split("/")[0] || "root";
+      if (!clusters.has(folder)) clusters.set(folder, []);
+      clusters.get(folder).push(idx);
     });
 
-    const radiusStep = Math.max(160, Math.sqrt(connectedIdx.length) * 45);
-    connectedIdx.forEach((idx, i) => {
-      const parts = activeNodes[idx].filePath.split("/");
-      const folder = parts.length > 1 ? parts.slice(0, Math.min(2, parts.length - 1)).join("/") : "root";
-      const cIdx = folderClusters[folder] || 0;
-      const angle = (cIdx / Math.max(cCount, 1)) * Math.PI * 2 + (i % 5) * 0.4;
-      const r = Math.min(radiusStep, 450) + (i % 7) * 22;
+    const clusterCount = clusters.size;
+    let cIdx = 0;
+    const clusterCenters = new Map();
+    const clusterRadius = Math.max(220, Math.sqrt(N) * 55);
 
-      positions[idx] = {
-        x: Math.cos(angle) * r + (Math.random() - 0.5) * 60,
-        y: Math.sin(angle) * r + (Math.random() - 0.5) * 60,
-        vx: 0, vy: 0, isolated: false
-      };
-    });
+    clusters.forEach((indices, folder) => {
+      const angle = (cIdx / Math.max(clusterCount, 1)) * Math.PI * 2;
+      const cx = Math.cos(angle) * clusterRadius;
+      const cy = Math.sin(angle) * clusterRadius;
+      clusterCenters.set(folder, { cx, cy });
 
-    // Generously Spaced Grid for Isolated / Standalone Nodes (Prevents label streak overlap!)
-    // Column spacing: 200px, Row spacing: 38px
-    const gridCols = Math.min(5, Math.ceil(Math.sqrt(isolatedIdx.length)));
-    const gridSpacingX = 210;
-    const gridSpacingY = 38;
-    const gridStartX = radiusStep > 0 ? radiusStep + 180 : - ((gridCols * gridSpacingX) / 2);
-    const gridStartY = - ((Math.ceil(isolatedIdx.length / Math.max(gridCols, 1)) * gridSpacingY) / 2);
-
-    isolatedIdx.forEach((idx, i) => {
-      const col = i % gridCols;
-      const row = Math.floor(i / gridCols);
-      positions[idx] = {
-        x: gridStartX + col * gridSpacingX,
-        y: gridStartY + row * gridSpacingY,
-        vx: 0, vy: 0, isolated: true
-      };
+      indices.forEach((nodeIdx, itemIdx) => {
+        const seed = deterministicHash(activeNodes[nodeIdx].id);
+        const randAngle = ((seed % 1000) / 1000) * Math.PI * 2;
+        const randDist = 20 + ((seed >> 10) % 80);
+        positions[nodeIdx] = {
+          x: cx + Math.cos(randAngle) * randDist,
+          y: cy + Math.sin(randAngle) * randDist,
+          vx: 0, vy: 0, folder
+        };
+      });
+      cIdx++;
     });
   }
 
+  /* Physics simulation */
+  let alpha = 1.0;
   function resetSimulation() {
     alpha = 1.0;
-    // Pre-tick layout so graph opens settled & ready
-    for (let t = 0; t < 60; t++) tickSimulation();
-    setTimeout(fitView, 50);
+    for (let step = 0; step < 70; step++) tickPhysics();
+    fitView();
   }
 
-  function tickSimulation() {
-    if (alpha <= 0.002) return;
-    const N = N_TOTAL();
+  function tickPhysics() {
+    if (alpha <= 0.003 || currentLayout === "dagre") return;
+    const N = activeNodes.length;
     if (N === 0) return;
 
-    const repulsion = 140 * alpha;
-    const springLen = 50;
-    const springStr = 0.05 * alpha;
+    const repulsion = 160 * alpha;
+    const springLen = 60;
+    const springStr = 0.045 * alpha;
     const gravity = 0.001 * alpha;
-    const damping = 0.72;
+    const damping = 0.74;
 
-    // Repulsion for connected nodes
-    const sampleStep = N > 800 ? Math.ceil(N / 800) : 1;
-    for (let i = 0; i < N; i += sampleStep) {
-      if (positions[i].isolated) continue;
-      for (let j = i + 1; j < N; j += sampleStep) {
-        if (positions[j].isolated) continue;
+    // Repulsion
+    const step = N > 600 ? 2 : 1;
+    for (let i = 0; i < N; i += step) {
+      for (let j = i + 1; j < N; j += step) {
         let dx = positions[j].x - positions[i].x;
         let dy = positions[j].y - positions[i].y;
         let d2 = dx * dx + dy * dy;
-        if (d2 < 100) d2 = 100;
-        if (d2 > 300000) continue;
+        if (d2 < 64) d2 = 64;
+        if (d2 > 250000) continue;
 
         const d = Math.sqrt(d2);
-        const force = repulsion / d2;
-        const fx = (dx / d) * force;
-        const fy = (dy / d) * force;
+        const f = repulsion / d2;
+        const fx = (dx / d) * f;
+        const fy = (dy / d) * f;
 
         positions[i].vx -= fx; positions[i].vy -= fy;
         positions[j].vx += fx; positions[j].vy += fy;
       }
     }
 
-    // Edge Attraction
+    // Spring attraction along active edges
     for (let i = 0; i < activeEdges.length; i++) {
       const e = activeEdges[i];
-      const sIdx = nodeIndexMap[e.source];
-      const tIdx = nodeIndexMap[e.target];
+      const sIdx = nodeIndexMap.get(e.source);
+      const tIdx = nodeIndexMap.get(e.target);
       if (sIdx === undefined || tIdx === undefined) continue;
 
       const dx = positions[tIdx].x - positions[sIdx].x;
       const dy = positions[tIdx].y - positions[sIdx].y;
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      const force = (d - springLen) * springStr;
-      const fx = (dx / d) * force;
-      const fy = (dy / d) * force;
+      const f = (d - springLen) * springStr;
+      const fx = (dx / d) * f;
+      const fy = (dy / d) * f;
 
-      if (!positions[sIdx].isolated) { positions[sIdx].vx += fx; positions[sIdx].vy += fy; }
-      if (!positions[tIdx].isolated) { positions[tIdx].vx -= fx; positions[tIdx].vy -= fy; }
+      positions[sIdx].vx += fx; positions[sIdx].vy += fy;
+      positions[tIdx].vx -= fx; positions[tIdx].vy -= fy;
     }
 
-    // Center Gravity & Velocity Update
+    // Position integration & damping
     for (let i = 0; i < N; i++) {
-      if (positions[i].isolated) continue;
+      if (positions[i].fixed) continue;
       positions[i].vx -= positions[i].x * gravity;
       positions[i].vy -= positions[i].y * gravity;
 
-      positions[i].vx = Math.max(-6, Math.min(6, positions[i].vx * damping));
-      positions[i].vy = Math.max(-6, Math.min(6, positions[i].vy * damping));
+      positions[i].vx = Math.max(-8, Math.min(8, positions[i].vx * damping));
+      positions[i].vy = Math.max(-8, Math.min(8, positions[i].vy * damping));
 
       positions[i].x += positions[i].vx;
       positions[i].y += positions[i].vy;
     }
 
-    alpha *= 0.991;
+    alpha *= 0.992;
   }
 
-  /* ---- Compute Folder Convex Hulls ---- */
-  function computeFolderHulls() {
-    folderHulls = [];
-    if (!showHulls) return;
-
-    const groups = {};
-    activeNodes.forEach((n, i) => {
-      if (positions[i].isolated) return;
-      const parts = n.filePath.split("/");
-      const folder = parts.length > 1 ? parts.slice(0, Math.min(2, parts.length - 1)).join("/") : "root";
-      if (!groups[folder]) groups[folder] = [];
-      groups[folder].push(positions[i]);
-    });
-
-    Object.entries(groups).forEach(([folder, pts]) => {
-      if (pts.length < 3) return;
-      const hull = convexHull(pts);
-      if (hull.length >= 3) {
-        folderHulls.push({ folder, points: hull });
-      }
-    });
-  }
-
-  function convexHull(pts) {
-    const sorted = pts.slice().sort((a,b) => a.x === b.x ? a.y - b.y : a.x - b.x);
-    const lower = [];
-    for (let i = 0; i < sorted.length; i++) {
-      while (lower.length >= 2 && crossProduct(lower[lower.length - 2], lower[lower.length - 1], sorted[i]) <= 0) {
-        lower.pop();
-      }
-      lower.push(sorted[i]);
-    }
-    const upper = [];
-    for (let i = sorted.length - 1; i >= 0; i--) {
-      while (upper.length >= 2 && crossProduct(upper[upper.length - 2], upper[upper.length - 1], sorted[i]) <= 0) {
-        upper.pop();
-      }
-      upper.push(sorted[i]);
-    }
-    upper.pop(); lower.pop();
-    return lower.concat(upper);
-  }
-
-  function crossProduct(a, b, c) {
-    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-  }
-
-  /* ---- Canvas Setup & Camera Control ---- */
+  /* -------------------------------------------------------------------------- */
+  /* 5. Canvas Viewport, Camera & High-DPI Renderer                              */
+  /* -------------------------------------------------------------------------- */
   const canvas = document.getElementById("canvas");
   const ctx = canvas.getContext("2d");
-  let cw, ch;
+  let cw = window.innerWidth, ch = window.innerHeight;
 
   function resize() {
     cw = window.innerWidth;
     ch = window.innerHeight;
-    canvas.width = cw * devicePixelRatio;
-    canvas.height = ch * devicePixelRatio;
+    canvas.width = cw * window.devicePixelRatio;
+    canvas.height = ch * window.devicePixelRatio;
     canvas.style.width = cw + "px";
     canvas.style.height = ch + "px";
-    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
   }
   window.addEventListener("resize", resize);
   resize();
 
   let camX = 0, camY = 0, zoom = 1;
-  let dragging = false, dragX = 0, dragY = 0;
+  let isDragging = false, dragStartX = 0, dragStartY = 0;
 
-  canvas.addEventListener("mousedown", e => {
-    if (e.button === 0) { dragging = true; dragX = e.clientX; dragY = e.clientY; }
+  canvas.addEventListener("mousedown", (e) => {
+    if (e.button === 0) {
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    }
   });
-  window.addEventListener("mousemove", e => {
-    if (!dragging) return;
-    camX += (e.clientX - dragX) / zoom;
-    camY += (e.clientY - dragY) / zoom;
-    dragX = e.clientX; dragY = e.clientY;
-  });
-  window.addEventListener("mouseup", () => dragging = false);
 
-  canvas.addEventListener("wheel", e => {
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    camX += (e.clientX - dragStartX) / zoom;
+    camY += (e.clientY - dragStartY) / zoom;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+  });
+
+  window.addEventListener("mouseup", () => isDragging = false);
+
+  canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
-    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = Math.max(0.05, Math.min(6, zoom * zoomFactor));
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    const nextZoom = Math.max(0.04, Math.min(8, zoom * factor));
 
-    const mouseX = e.clientX - cw / 2;
-    const mouseY = e.clientY - ch / 2;
-    camX -= (mouseX / zoom - mouseX / newZoom);
-    camY -= (mouseY / zoom - mouseY / newZoom);
-    zoom = newZoom;
+    const mx = e.clientX - cw / 2;
+    const my = e.clientY - ch / 2;
+    camX -= (mx / zoom - mx / nextZoom);
+    camY -= (my / zoom - my / nextZoom);
+    zoom = nextZoom;
   }, { passive: false });
 
-  document.getElementById("btn-recenter").addEventListener("click", () => {
-    camX = 0; camY = 0; zoom = 1; resetSimulation();
-  });
-  document.getElementById("btn-fit").addEventListener("click", fitView);
-
   function fitView() {
-    if (positions.length === 0) return;
+    if (!positions || positions.length === 0) return;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     positions.forEach(p => {
       if (!p) return;
       if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
       if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
     });
-    const w = maxX - minX || 100;
-    const h = maxY - minY || 100;
+    const w = maxX - minX || 200;
+    const h = maxY - minY || 200;
     camX = - (minX + maxX) / 2;
     camY = - (minY + maxY) / 2;
-    zoom = Math.min(cw / (w + 260), ch / (h + 260));
+    zoom = Math.min((cw - 380) / (w + 200), (ch - 140) / (h + 200));
   }
 
-  /* ---- Canvas Hover & Selection Inspector ---- */
+  document.getElementById("btn-fit").addEventListener("click", fitView);
+  document.getElementById("btn-recenter").addEventListener("click", () => {
+    camX = 0; camY = 0; zoom = 1; resetSimulation();
+  });
+
+  /* -------------------------------------------------------------------------- */
+  /* 6. Node Selection, Hover & Contextual Inspector                            */
+  /* -------------------------------------------------------------------------- */
   let hoverIdx = -1;
   let selectedIdx = -1;
 
-  canvas.addEventListener("mousemove", e => {
-    if (dragging) return;
+  canvas.addEventListener("mousemove", (e) => {
+    if (isDragging) return;
     const mx = (e.clientX - cw / 2) / zoom - camX;
     const my = (e.clientY - ch / 2) / zoom - camY;
-    let best = -1, bestD = 18 / zoom;
+
+    let best = -1, bestDist = 18 / zoom;
     for (let i = 0; i < activeNodes.length; i++) {
-      const dx = positions[i].x - mx, dy = positions[i].y - my;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d < bestD) { bestD = d; best = i; }
+      const p = positions[i];
+      if (!p) continue;
+      const d = Math.hypot(p.x - mx, p.y - my);
+      if (d < bestDist) { bestDist = d; best = i; }
     }
     hoverIdx = best;
   });
@@ -927,229 +1229,201 @@ export function generateDashboardHtml(store: GraphStore): string {
   canvas.addEventListener("click", () => {
     if (hoverIdx >= 0) {
       selectedIdx = hoverIdx;
-      showInspector(selectedIdx);
+      inspectNode(activeNodes[selectedIdx]);
     } else {
       selectedIdx = -1;
-      showInspector(-1);
+      document.getElementById("right-inspector").style.display = "none";
     }
   });
 
-  document.getElementById("btn-close-inspector").addEventListener("click", () => {
-    selectedIdx = -1; showInspector(-1);
+  document.getElementById("insp-close").addEventListener("click", () => {
+    selectedIdx = -1;
+    document.getElementById("right-inspector").style.display = "none";
   });
 
-  function showInspector(idx) {
+  function inspectNode(node) {
     const insp = document.getElementById("right-inspector");
-    if (idx < 0) { insp.style.display = "none"; return; }
+    insp.style.display = "flex";
 
-    const n = activeNodes[idx];
-    document.getElementById("insp-title").textContent = n.name;
-    document.getElementById("insp-sub").textContent = n.filePath + (n.line ? ":" + n.line : "");
+    const badge = document.getElementById("insp-badge");
+    badge.textContent = node.kind.toUpperCase();
+    badge.style.background = (KIND_COLORS[node.kind] || "#55C5D9") + "22";
+    badge.style.color = KIND_COLORS[node.kind] || "#55C5D9";
 
-    const edges = adjMap[n.id] || [];
-    const inEdges = edges.filter(e => e.dir === "in");
-    const outEdges = edges.filter(e => e.dir === "out");
+    document.getElementById("insp-name").textContent = node.name;
+    document.getElementById("insp-path").textContent = node.filePath + (node.line ? ":" + node.line : "");
 
-    // Compute Blast Radius Impact Score (simulated BFS upstream impact)
+    const neighbors = adjMap.get(node.id) || [];
+    const incoming = neighbors.filter(e => e.dir === "in");
+    const outgoing = neighbors.filter(e => e.dir === "out");
+
+    let html = '';
+
+    // File / Module metrics if applicable
+    const fileMetric = metricsByPath.get(node.filePath);
+    if (fileMetric) {
+      html += '<div class="stats-grid" style="margin-bottom:10px;">';
+      html += '  <div class="stat-card"><div class="stat-val">' + fileMetric.fanIn + '</div><div class="stat-lbl">Fan-In</div></div>';
+      html += '  <div class="stat-card"><div class="stat-val">' + fileMetric.fanOut + '</div><div class="stat-lbl">Fan-Out</div></div>';
+      html += '  <div class="stat-card"><div class="stat-val">' + fileMetric.instability + '</div><div class="stat-lbl">Instability</div></div>';
+      html += '  <div class="stat-card"><div class="stat-val">' + (fileMetric.sizeBytes / 1024).toFixed(1) + 'k</div><div class="stat-lbl">Size</div></div>';
+      html += '</div>';
+    }
+
+    // Blast radius impact report
     const impactedFiles = new Set();
-    const queue = [n.id];
+    const queue = [node.id];
     let level = 0;
-    while (queue.length > 0 && level < 3) {
-      const nextQ = [];
-      queue.forEach(currId => {
-        (adjMap[currId] || []).filter(e => e.dir === "in").forEach(e => {
+    while (queue.length > 0 && level < impactDepth) {
+      const next = [];
+      queue.forEach(curr => {
+        (adjMap.get(curr) || []).filter(e => e.dir === "in").forEach(e => {
           if (!impactedFiles.has(e.peer)) {
             impactedFiles.add(e.peer);
-            nextQ.push(e.peer);
+            next.push(e.peer);
           }
         });
       });
       queue.length = 0;
-      queue.push(...nextQ);
+      queue.push(...next);
       level++;
     }
 
-    const blastPct = Math.min(100, Math.round((impactedFiles.size / Math.max(rawFiles.length, 1)) * 100));
+    const blastPct = Math.min(100, Math.round((impactedFiles.size / Math.max(files.length, 1)) * 100));
+    const riskClass = blastPct > 40 ? "risk-critical" : blastPct > 20 ? "risk-high" : blastPct > 5 ? "risk-medium" : "risk-low";
 
-    // Get contained symbols if file node
-    const containedSymbols = rawNodes.filter(rn => rn.filePath === n.filePath && rn.kind !== "file");
-
-    let html = '';
-
-    /* Blast Radius Block (Image 1 Style) */
-    html += '<div class="blast-box">';
-    html += '  <div class="blast-head">';
-    html += '    <h5>💥 Blast Radius Impact</h5>';
-    html += '    <span class="score">' + impactedFiles.size + ' files (' + blastPct + '%)</span>';
+    html += '<div class="blast-card">';
+    html += '  <div class="blast-title">';
+    html += '    <span class="blast-label">💥 Blast Radius (' + impactDepth + ' Hops)</span>';
+    html += '    <span class="blast-score">' + impactedFiles.size + ' Affected (' + blastPct + '%)</span>';
     html += '  </div>';
-    html += '  <div class="blast-meter"><div class="blast-fill" style="width:' + blastPct + '%"></div></div>';
-    html += '  <div style="font-size:10px; color:var(--text-muted); margin-bottom:6px;">Upstream Dependents Affected:</div>';
-    html += '  <ul class="impact-list">';
-    if (inEdges.length === 0) {
-      html += '    <li class="impact-item" style="color:var(--text-muted)">No incoming dependents</li>';
-    } else {
-      inEdges.slice(0, 10).forEach(e => {
-        html += '    <li class="impact-item"><span>' + esc(e.peer) + '</span><span style="color:var(--accent-cyan)">' + esc(e.kind) + '</span></li>';
-      });
-    }
-    html += '  </ul>';
+    html += '  <div class="blast-bar"><div class="blast-fill ' + riskClass + '" style="width:' + Math.max(blastPct, 4) + '%"></div></div>';
     html += '</div>';
 
-    /* Outgoing Dependencies */
+    // Incoming Dependents List
     html += '<div>';
-    html += '  <div class="sidebar-title">Outgoing Dependencies (' + outEdges.length + ')</div>';
-    html += '  <ul class="impact-list">';
-    if (outEdges.length === 0) {
-      html += '    <li class="impact-item" style="color:var(--text-muted)">No outgoing dependencies</li>';
+    html += '  <div class="sidebar-section-title">Incoming Dependents (' + incoming.length + ')</div>';
+    html += '  <ul class="rel-list">';
+    if (incoming.length === 0) {
+      html += '    <li style="font-size:11px; color:var(--text-muted);">No incoming dependents</li>';
     } else {
-      outEdges.slice(0, 10).forEach(e => {
-        html += '    <li class="impact-item"><span>' + esc(e.peer) + '</span><span style="color:var(--text-muted)">' + esc(e.kind) + '</span></li>';
+      incoming.slice(0, 15).forEach(e => {
+        const peerNode = nodeById.get(e.peer);
+        const name = peerNode ? peerNode.name : e.peer.split("/").pop();
+        html += '    <li class="rel-item"><span>' + escapeHtml(name) + '</span><span class="rel-kind-tag">' + e.kind + '</span></li>';
       });
     }
     html += '  </ul>';
     html += '</div>';
 
-    /* Contained Symbols */
-    if (containedSymbols.length > 0) {
-      html += '<div>';
-      html += '  <div class="sidebar-title">Contained Symbols (' + containedSymbols.length + ')</div>';
-      html += '  <ul class="symbol-list">';
-      containedSymbols.slice(0, 15).forEach(s => {
-        const col = KIND_COLORS[s.kind] || "#94a3b8";
-        html += '    <li class="symbol-item"><span>' + esc(s.name) + '</span><span class="symbol-kind-tag" style="color:'+col+'">' + esc(s.kind) + '</span></li>';
+    // Outgoing Dependencies List
+    html += '<div>';
+    html += '  <div class="sidebar-section-title">Outgoing Dependencies (' + outgoing.length + ')</div>';
+    html += '  <ul class="rel-list">';
+    if (outgoing.length === 0) {
+      html += '    <li style="font-size:11px; color:var(--text-muted);">No outgoing dependencies</li>';
+    } else {
+      outgoing.slice(0, 15).forEach(e => {
+        const peerNode = nodeById.get(e.peer);
+        const name = peerNode ? peerNode.name : e.peer.split("/").pop();
+        html += '    <li class="rel-item"><span>' + escapeHtml(name) + '</span><span class="rel-kind-tag">' + e.kind + '</span></li>';
       });
-      html += '  </ul>';
+    }
+    html += '  </ul>';
+    html += '</div>';
+
+    // Source Code Snippet if symbol
+    if (node.source || node.signature) {
+      html += '<div>';
+      html += '  <div class="sidebar-section-title">Source Preview</div>';
+      html += '  <div class="code-preview">' + escapeHtml(node.source || node.signature) + '</div>';
       html += '</div>';
     }
 
     document.getElementById("insp-body").innerHTML = html;
-    insp.style.display = "flex";
   }
 
-  function esc(s) { const d = document.createElement("span"); d.textContent = s; return d.innerHTML; }
-
-  /* ---- Controls Handlers ---- */
-  document.getElementById("btn-toggle-hulls").addEventListener("click", (e) => {
-    showHulls = !showHulls;
-    e.target.classList.toggle("active", showHulls);
-  });
-  document.getElementById("btn-toggle-labels").addEventListener("click", (e) => {
-    showLabels = !showLabels;
-    e.target.classList.toggle("active", showLabels);
-  });
-
-  document.getElementById("sel-scope").addEventListener("change", (e) => {
-    graphScope = e.target.value; rebuildGraph();
-  });
-  document.getElementById("sel-color-mode").addEventListener("change", (e) => {
-    colorMode = e.target.value;
-  });
-
-  document.getElementById("search-box").addEventListener("input", (e) => {
-    searchTerm = e.target.value; rebuildGraph();
-  });
-
-  /* View Mode Tab Switcher */
-  document.getElementById("tab-graph").addEventListener("click", () => switchView("graph"));
-  document.getElementById("tab-treemap").addEventListener("click", () => switchView("treemap"));
-  document.getElementById("tab-grid").addEventListener("click", () => switchView("grid"));
-
-  function switchView(mode) {
-    activeTab = mode;
-    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-    document.getElementById("tab-" + mode).classList.add("active");
-
-    document.getElementById("viewport").style.display = mode === "graph" ? "block" : "block";
-    document.getElementById("treemap-view").style.display = mode === "treemap" ? "block" : "none";
-    document.getElementById("grid-view").style.display = mode === "grid" ? "block" : "none";
-
-    if (mode === "treemap") renderTreemap();
-    if (mode === "grid") renderGridView();
+  function escapeHtml(s) {
+    if (!s) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;")
+      .replace(/\x60/g, "&#96;");
   }
 
-  /* ---- Render Treemap View ---- */
-  function renderTreemap() {
-    const tm = document.getElementById("treemap-view");
-    tm.innerHTML = '<div style="font-weight:700; font-size:16px; margin-bottom:14px; color:var(--accent-cyan)">Repository Code Treemap</div>';
+  /* -------------------------------------------------------------------------- */
+  /* 7. Squarified Treemap Layout (Codebase Map)                                */
+  /* -------------------------------------------------------------------------- */
+  let currentTreemapPath = "";
+  function renderCodebaseTreemap() {
+    const body = document.getElementById("treemap-body");
+    body.innerHTML = "";
+    const w = body.clientWidth || 800;
+    const h = body.clientHeight || 500;
 
-    const container = document.createElement("div");
-    container.style.position = "relative"; container.style.width = "100%"; container.style.height = "calc(100% - 40px)";
-    tm.appendChild(container);
+    let targetFiles = files;
+    if (currentTreemapPath) {
+      targetFiles = files.filter(f => f.path.startsWith(currentTreemapPath + "/"));
+    }
 
-    const rects = squarifyFiles(rawFiles, container.clientWidth, container.clientHeight);
+    const rects = squarify(targetFiles, 0, 0, w, h);
     rects.forEach(r => {
-      const div = document.createElement("div");
-      div.className = "treemap-node";
-      div.style.left = r.x + "px"; div.style.top = r.y + "px";
-      div.style.width = r.w + "px"; div.style.height = r.h + "px";
-      const col = LANG_COLORS[(r.file.language || "other").toLowerCase()] || LANG_COLORS.other;
-      div.style.background = col + "33"; div.style.borderColor = col;
+      const el = document.createElement("div");
+      el.className = "treemap-rect";
+      el.style.left = r.x + "px";
+      el.style.top = r.y + "px";
+      el.style.width = Math.max(r.w - 2, 4) + "px";
+      el.style.height = Math.max(r.h - 2, 4) + "px";
 
-      div.innerHTML = '<div class="treemap-lbl">' + r.file.path.split("/").pop() + '</div>' +
-                      '<div class="treemap-sub">' + (r.file.size / 1024).toFixed(1) + ' KB</div>';
-      container.appendChild(div);
+      const col = LANG_COLORS[(r.file.language || "other").toLowerCase()] || "#64748B";
+      el.style.background = col + "26";
+      el.style.borderColor = col + "88";
+
+      el.innerHTML = '<div class="treemap-name">' + escapeHtml(r.file.path.split("/").pop()) + '</div>' +
+                     '<div class="treemap-sub">' + (r.file.size / 1024).toFixed(1) + ' KB</div>';
+
+      el.addEventListener("click", () => {
+        currentMode = "symbol";
+        symbolRootId = "file:" + r.file.path;
+        document.querySelectorAll(".mode-tab").forEach(t => t.classList.remove("active"));
+        document.getElementById("tab-symbol").classList.add("active");
+        rebuildActiveGraph();
+      });
+
+      body.appendChild(el);
     });
   }
 
-  function squarifyFiles(files, width, height) {
-    if (files.length === 0) return [];
-    const totalSize = files.reduce((s, f) => s + Math.max(f.size, 100), 0);
+  function squarify(fileList, x, y, width, height) {
+    if (fileList.length === 0) return [];
+    const total = fileList.reduce((acc, f) => acc + Math.max(f.size, 100), 0);
     const rects = [];
-    let curX = 0, curY = 0, curW = width, curH = height;
+    let curX = x, curY = y, curW = width, curH = height;
 
-    files.slice(0, 120).forEach(f => {
-      const area = (Math.max(f.size, 100) / totalSize) * (width * height);
-      let w = curW, h = area / curW;
-      if (h > curH) { h = curH; w = area / curH; }
+    fileList.slice(0, 150).forEach(f => {
+      const area = (Math.max(f.size, 100) / total) * (width * height);
+      let rw = curW, rh = area / curW;
+      if (rh > curH) { rh = curH; rw = area / curH; }
 
-      rects.push({ file: f, x: curX, y: curY, w: Math.max(w - 2, 10), h: Math.max(h - 2, 10) });
-      if (curW > curH) { curX += w; curW -= w; }
-      else { curY += h; curH -= h; }
+      rects.push({ file: f, x: curX, y: curY, w: Math.max(rw, 10), h: Math.max(rh, 10) });
+
+      if (curW > curH) { curX += rw; curW -= rw; }
+      else { curY += rh; curH -= rh; }
     });
     return rects;
   }
 
-  /* ---- Render Grid View ---- */
-  function renderGridView() {
-    const gc = document.getElementById("grid-cards-container");
-    gc.innerHTML = "";
-    rawFiles.slice(0, 80).forEach(f => {
-      const card = document.createElement("div");
-      card.className = "grid-card";
-      const langCol = LANG_COLORS[(f.language || "other").toLowerCase()] || LANG_COLORS.other;
-      const symbolsCount = rawNodes.filter(n => n.filePath === f.path).length;
-
-      card.innerHTML = '<h4>' + f.path.split("/").pop() + '</h4>' +
-                       '<div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">' + f.path + '</div>' +
-                       '<div class="meta"><span><span class="lang-dot" style="background:'+langCol+'"></span> ' + (f.language || "code") + '</span>' +
-                       '<span>' + symbolsCount + ' symbols</span><span>' + (f.size / 1024).toFixed(1) + ' KB</span></div>';
-      card.addEventListener("click", () => {
-        switchView("graph"); activeFolderFilter = f.path; rebuildGraph();
-      });
-      gc.appendChild(card);
-    });
-  }
-
-  /* ---- Node Color Resolver ---- */
-  function getNodeColor(n) {
-    if (colorMode === "kind") return KIND_COLORS[n.kind] || "#38bdf8";
-    if (colorMode === "lang") return LANG_COLORS[(n.lang || "other").toLowerCase()] || "#38bdf8";
-    // Folder color hashing
-    const parts = n.filePath.split("/");
-    const folder = parts.length > 1 ? parts[0] : "root";
-    let hash = 0;
-    for (let i = 0; i < folder.length; i++) hash = folder.charCodeAt(i) + ((hash << 5) - hash);
-    const hue = Math.abs(hash) % 360;
-    return "hsl(" + hue + ", 75%, 60%)";
-  }
-
-  /* ---- Main Render Loop ---- */
+  /* -------------------------------------------------------------------------- */
+  /* 8. Canvas Render Loop & Level-of-Detail Labels                             */
+  /* -------------------------------------------------------------------------- */
   function render() {
     requestAnimationFrame(render);
-    if (activeTab !== "graph") return;
+    if (currentMode === "codebase_map") return;
 
-    tickSimulation();
-    computeFolderHulls();
+    tickPhysics();
 
     ctx.clearRect(0, 0, cw, ch);
     ctx.save();
@@ -1160,89 +1434,122 @@ export function generateDashboardHtml(store: GraphStore): string {
     const activeIdx = selectedIdx >= 0 ? selectedIdx : hoverIdx;
     const activeNeighbors = new Set();
     if (activeIdx >= 0 && activeNodes[activeIdx]) {
-      const conn = adjMap[activeNodes[activeIdx].id] || [];
+      const conn = adjMap.get(activeNodes[activeIdx].id) || [];
       conn.forEach(e => {
-        const peerIdx = nodeIndexMap[e.peer];
-        if (peerIdx !== undefined) activeNeighbors.add(peerIdx);
+        const pIdx = nodeIndexMap.get(e.peer);
+        if (pIdx !== undefined) activeNeighbors.add(pIdx);
       });
       activeNeighbors.add(activeIdx);
     }
 
-    /* 1. Render Translucent Folder Cluster Hulls */
-    if (showHulls) {
-      folderHulls.forEach(h => {
-        ctx.beginPath();
-        ctx.moveTo(h.points[0].x, h.points[0].y);
-        for (let i = 1; i < h.points.length; i++) {
-          ctx.lineTo(h.points[i].x, h.points[i].y);
+    // Search matching set for instant highlighting without rebuild
+    const searchMatches = new Set();
+    if (searchTerm) {
+      for (let i = 0; i < activeNodes.length; i++) {
+        const n = activeNodes[i];
+        if (n.name.toLowerCase().includes(searchTerm) || n.filePath.toLowerCase().includes(searchTerm)) {
+          searchMatches.add(i);
         }
+      }
+    }
+
+    // 1. Render Cluster Hulls
+    if (showHulls && currentMode === "architecture") {
+      const clusters = new Map();
+      activeNodes.forEach((n, i) => {
+        const f = n.filePath.split("/")[0] || "root";
+        if (!clusters.has(f)) clusters.set(f, []);
+        clusters.get(f).push(positions[i]);
+      });
+
+      clusters.forEach((pts, folder) => {
+        if (pts.length < 3) return;
+        const hull = convexHull(pts);
+        if (hull.length < 3) return;
+
+        ctx.beginPath();
+        ctx.moveTo(hull[0].x, hull[0].y);
+        for (let i = 1; i < hull.length; i++) ctx.lineTo(hull[i].x, hull[i].y);
         ctx.closePath();
 
-        ctx.fillStyle = "rgba(56, 189, 248, 0.04)";
+        ctx.fillStyle = "rgba(85, 197, 217, 0.03)";
         ctx.fill();
-        ctx.strokeStyle = "rgba(56, 189, 248, 0.2)";
+        ctx.strokeStyle = "rgba(85, 197, 217, 0.15)";
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        ctx.fillStyle = "rgba(56, 189, 248, 0.5)";
+        ctx.fillStyle = "rgba(85, 197, 217, 0.4)";
         ctx.font = "10px sans-serif";
-        ctx.fillText("📁 " + h.folder, h.points[0].x, h.points[0].y - 6);
+        ctx.fillText("📁 " + folder, hull[0].x, hull[0].y - 6);
       });
     }
 
-    /* 2. Render Curved Edges */
+    // 2. Render Directional Bezier Edges
+    const cycleEdgeKeys = new Set();
+    cycles.forEach(cyc => {
+      for (let i = 0; i < cyc.length; i++) {
+        const s = cyc[i], t = cyc[(i + 1) % cyc.length];
+        cycleEdgeKeys.add(s + "->" + t);
+      }
+    });
+
     for (let i = 0; i < activeEdges.length; i++) {
       const e = activeEdges[i];
-      const sIdx = nodeIndexMap[e.source];
-      const tIdx = nodeIndexMap[e.target];
+      const sIdx = nodeIndexMap.get(e.source);
+      const tIdx = nodeIndexMap.get(e.target);
       if (sIdx === undefined || tIdx === undefined) continue;
 
       const pS = positions[sIdx];
       const pT = positions[tIdx];
+      const isCycle = cycleEdgeKeys.has(e.source + "->" + e.target);
+      const isConnected = activeIdx >= 0 && (sIdx === activeIdx || tIdx === activeIdx);
+      const dimmed = activeIdx >= 0 && !isConnected;
 
-      const isConn = activeIdx >= 0 && (sIdx === activeIdx || tIdx === activeIdx);
-      const dimmed = activeIdx >= 0 && !isConn;
-
-      ctx.globalAlpha = dimmed ? 0.03 : (isConn ? 0.9 : 0.2);
-      ctx.strokeStyle = isConn ? "var(--accent-cyan)" : "#334155";
-      ctx.lineWidth = isConn ? 2.2 : 0.8;
+      ctx.globalAlpha = dimmed ? 0.04 : (isConnected || isCycle ? 0.95 : 0.22);
+      ctx.strokeStyle = isCycle ? "#EA7777" : (isConnected ? "#55C5D9" : "#252D3A");
+      ctx.lineWidth = isCycle ? 2.5 : (isConnected ? 2.0 : 0.8);
 
       ctx.beginPath();
-      const midX = (pS.x + pT.x) / 2 + (pT.y - pS.y) * 0.15;
-      const midY = (pS.y + pT.y) / 2 - (pT.x - pS.x) * 0.15;
+      const midX = (pS.x + pT.x) / 2 + (pT.y - pS.y) * 0.12;
+      const midY = (pS.y + pT.y) / 2 - (pT.x - pS.x) * 0.12;
       ctx.moveTo(pS.x, pS.y);
       ctx.quadraticCurveTo(midX, midY, pT.x, pT.y);
       ctx.stroke();
     }
 
-    /* 3. Render Nodes */
+    // 3. Render Nodes
     for (let i = 0; i < activeNodes.length; i++) {
       const n = activeNodes[i];
       const p = positions[i];
       if (!p) continue;
 
-      const col = getNodeColor(n);
-
       const isSel = i === selectedIdx;
       const isHov = i === hoverIdx;
       const isNeigh = activeNeighbors.has(i);
-      const dimmed = activeIdx >= 0 && !isNeigh;
+      const isSearchMatch = searchMatches.has(i);
+      const hasSearch = searchMatches.size > 0;
 
-      const deg = (adjMap[n.id] || []).length;
-      const baseR = Math.min(14, Math.max(5, 4 + deg * 0.8));
-      let r = baseR;
-      if (isSel || isHov) r = baseR * 1.8;
-      else if (isNeigh) r = baseR * 1.3;
+      let dimmed = false;
+      if (hasSearch) {
+        dimmed = !isSearchMatch;
+      } else if (activeIdx >= 0) {
+        dimmed = !isNeigh || (focusMode && !isNeigh);
+      }
 
       ctx.globalAlpha = dimmed ? 0.08 : 1.0;
 
-      // Glow ring for high degree / selection
-      if (isSel || isHov || deg > 5) {
+      const col = isSearchMatch ? "#55C5D9" : (KIND_COLORS[n.kind] || "#55C5D9");
+      const deg = (adjMap.get(n.id) || []).length;
+      const baseR = Math.min(14, Math.max(5, 4 + deg * 0.6));
+      const r = isSel || isHov || isSearchMatch ? baseR * 1.5 : (isNeigh ? baseR * 1.2 : baseR);
+
+      // Glow ring
+      if (isSel || isHov || isSearchMatch) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, r + 4, 0, Math.PI * 2);
-        ctx.fillStyle = col + "44";
+        ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
+        ctx.fillStyle = (isSearchMatch ? "#55C5D9" : col) + "44";
         ctx.fill();
       }
 
@@ -1251,42 +1558,216 @@ export function generateDashboardHtml(store: GraphStore): string {
       ctx.fillStyle = col;
       ctx.fill();
 
-      if (isSel || isHov) {
-        ctx.strokeStyle = "#ffffff";
+      if (isSel || isHov || isSearchMatch) {
+        ctx.strokeStyle = isSearchMatch ? "#55C5D9" : "#FFFFFF";
         ctx.lineWidth = 2;
         ctx.stroke();
       }
 
-      /* Node Labels with Pill Background to Avoid Overlap Streaks */
-      if (showLabels && (zoom > 0.6 || isSel || isHov || isNeigh || deg > 0)) {
+      // Level-of-Detail Labels
+      if (showLabels && (zoom > 0.55 || isSel || isHov || isNeigh || isSearchMatch || deg > 2)) {
         ctx.globalAlpha = dimmed ? 0.1 : 0.95;
-        const fontPx = (isSel || isHov ? 12 : 10);
-        ctx.font = (isSel || isHov ? "bold " : "") + fontPx + "px sans-serif";
+        const fontPx = isSel || isHov || isSearchMatch ? 12 : 10;
+        ctx.font = (isSel || isHov || isSearchMatch ? "bold " : "") + fontPx + "px -apple-system, sans-serif";
 
-        let labelText = n.name;
-        if (!isSel && !isHov && labelText.length > 22) {
-          labelText = labelText.substring(0, 20) + "…";
-        }
+        let label = n.name;
+        if (!isSel && !isHov && !isSearchMatch && label.length > 20) label = label.slice(0, 18) + "…";
+        const w = ctx.measureText(label).width;
 
-        const textMetrics = ctx.measureText(labelText);
-        const textW = textMetrics.width;
-
-        // Label Semi-transparent Pill Background
-        ctx.fillStyle = isSel || isHov ? "rgba(15, 23, 42, 0.9)" : "rgba(9, 12, 21, 0.75)";
+        ctx.fillStyle = isSel || isHov || isSearchMatch ? "rgba(17, 21, 29, 0.95)" : "rgba(11, 13, 18, 0.8)";
         ctx.beginPath();
-        ctx.roundRect(p.x + r + 4, p.y - fontPx / 2 - 2, textW + 8, fontPx + 4, 4);
+        ctx.roundRect(p.x + r + 4, p.y - fontPx / 2 - 2, w + 8, fontPx + 4, 3);
         ctx.fill();
 
-        ctx.fillStyle = (isSel || isHov) ? "#ffffff" : "#c9d1d9";
-        ctx.fillText(labelText, p.x + r + 8, p.y + fontPx / 3);
+        ctx.fillStyle = isSel || isHov || isSearchMatch ? "#55C5D9" : "#E8EDF5";
+        ctx.fillText(label, p.x + r + 8, p.y + fontPx / 3);
       }
     }
 
     ctx.restore();
+    renderMinimap();
   }
 
-  // Initial Build & Render
-  rebuildGraph();
+  function renderMinimap() {
+    const mmCanvas = document.getElementById("minimap-canvas");
+    const mCtx = mmCanvas.getContext("2d");
+    const mw = mmCanvas.width = 180;
+    const mh = mmCanvas.height = 120;
+    mCtx.clearRect(0, 0, mw, mh);
+
+    if (positions.length === 0) return;
+    let minX = -800, maxX = 800, minY = -600, maxY = 600;
+
+    positions.forEach(p => {
+      if (!p) return;
+      const x = ((p.x - minX) / (maxX - minX)) * mw;
+      const y = ((p.y - minY) / (maxY - minY)) * mh;
+      mCtx.fillStyle = "#55C5D988";
+      mCtx.fillRect(x, y, 2, 2);
+    });
+
+    // Viewport box
+    const vx = ((-camX - cw / (2 * zoom) - minX) / (maxX - minX)) * mw;
+    const vy = ((-camY - ch / (2 * zoom) - minY) / (maxY - minY)) * mh;
+    const vw = (cw / zoom / (maxX - minX)) * mw;
+    const vh = (ch / zoom / (maxY - minY)) * mh;
+
+    mCtx.strokeStyle = "#55C5D9";
+    mCtx.lineWidth = 1;
+    mCtx.strokeRect(vx, vy, vw, vh);
+  }
+
+  function convexHull(pts) {
+    const sorted = pts.slice().sort((a,b) => a.x === b.x ? a.y - b.y : a.x - b.x);
+    const lower = [];
+    for (let i = 0; i < sorted.length; i++) {
+      while (lower.length >= 2 && crossProduct(lower[lower.length - 2], lower[lower.length - 1], sorted[i]) <= 0) lower.pop();
+      lower.push(sorted[i]);
+    }
+    const upper = [];
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      while (upper.length >= 2 && crossProduct(upper[upper.length - 2], upper[upper.length - 1], sorted[i]) <= 0) upper.pop();
+      upper.push(sorted[i]);
+    }
+    upper.pop(); lower.pop();
+    return lower.concat(upper);
+  }
+
+  function crossProduct(a, b, c) {
+    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* 9. Event Listeners & Mode Switching                                        */
+  /* -------------------------------------------------------------------------- */
+  document.querySelectorAll(".mode-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".mode-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      currentMode = tab.getAttribute("data-mode");
+      rebuildActiveGraph();
+    });
+  });
+
+  document.getElementById("layout-select").addEventListener("change", (e) => {
+    currentLayout = e.target.value;
+    computeDeterministicPositions();
+    resetSimulation();
+  });
+
+  document.getElementById("btn-hulls").addEventListener("click", (e) => {
+    showHulls = !showHulls;
+    e.target.classList.toggle("active", showHulls);
+  });
+
+  document.getElementById("btn-labels").addEventListener("click", (e) => {
+    showLabels = !showLabels;
+    e.target.classList.toggle("active", showLabels);
+  });
+
+  document.getElementById("btn-focus").addEventListener("click", (e) => {
+    focusMode = !focusMode;
+    e.target.classList.toggle("active", focusMode);
+  });
+
+  // Global search input
+  const searchInput = document.getElementById("global-search");
+  searchInput.addEventListener("input", (e) => {
+    searchTerm = e.target.value.toLowerCase().trim();
+    if (!searchTerm) {
+      selectedIdx = -1;
+      return;
+    }
+    const matchIdx = activeNodes.findIndex(n => n.name.toLowerCase().includes(searchTerm) || n.filePath.toLowerCase().includes(searchTerm));
+    if (matchIdx >= 0) {
+      selectedIdx = matchIdx;
+      inspectNode(activeNodes[matchIdx]);
+      camX = -positions[matchIdx].x;
+      camY = -positions[matchIdx].y;
+    }
+  });
+
+  // Keyboard shortcuts
+  window.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
+      if (e.key === "Escape") e.target.blur();
+      return;
+    }
+    if (e.key === "/" || (e.ctrlKey && e.key === "k")) {
+      e.preventDefault();
+      searchInput.focus();
+    } else if (e.key === "1") {
+      document.getElementById("tab-architecture").click();
+    } else if (e.key === "2") {
+      document.getElementById("tab-dependency").click();
+    } else if (e.key === "3") {
+      document.getElementById("tab-symbol").click();
+    } else if (e.key === "4") {
+      document.getElementById("tab-impact").click();
+    } else if (e.key === "5") {
+      document.getElementById("tab-map").click();
+    } else if (e.key === "f" || e.key === " ") {
+      e.preventDefault();
+      fitView();
+    } else if (e.key === "h") {
+      document.getElementById("btn-hulls").click();
+    } else if (e.key === "l") {
+      document.getElementById("btn-labels").click();
+    } else if (e.key === "Escape") {
+      selectedIdx = -1;
+      document.getElementById("right-inspector").style.display = "none";
+      document.getElementById("ai-modal").style.display = "none";
+      document.getElementById("shortcuts-modal").style.display = "none";
+    } else if (e.key === "?") {
+      document.getElementById("shortcuts-modal").style.display = "flex";
+    }
+  });
+
+  /* Modals */
+  document.getElementById("btn-shortcuts").addEventListener("click", () => {
+    document.getElementById("shortcuts-modal").style.display = "flex";
+  });
+  document.getElementById("shortcuts-modal-close").addEventListener("click", () => {
+    document.getElementById("shortcuts-modal").style.display = "none";
+  });
+
+  document.getElementById("btn-open-ai").addEventListener("click", () => {
+    document.getElementById("ai-modal").style.display = "flex";
+  });
+  document.getElementById("ai-modal-close").addEventListener("click", () => {
+    document.getElementById("ai-modal").style.display = "none";
+  });
+
+  /* Grounded AI Mock / Local Analysis */
+  document.getElementById("ai-btn-explain").addEventListener("click", () => {
+    const out = document.getElementById("ai-output");
+    out.textContent = "Analyzing architecture based on " + files.length + " files and " + nodes.length + " symbols...\\n\\n" +
+      "Repository Architecture Overview:\\n" +
+      "- Multi-package monorepo architecture with decoupled storage and traversal.\\n" +
+      "- Dominant languages: " + Object.keys(langCounts).join(", ") + "\\n" +
+      "- Key architectural bottlenecks: " + (metrics.sort((a,b) => b.fanIn - a.fanIn)[0]?.filePath || "N/A") + " (highest afferent coupling).\\n" +
+      "- Modularity index: " + (cycles.length === 0 ? "Acyclic (High stability)" : cycles.length + " circular dependency loops detected.");
+  });
+
+  document.getElementById("ai-btn-cycles").addEventListener("click", () => {
+    const out = document.getElementById("ai-output");
+    if (cycles.length === 0) {
+      out.textContent = "Great news: Zero circular dependency loops detected in this codebase!";
+    } else {
+      out.textContent = "Detected " + cycles.length + " circular dependency loops:\\n\\n" +
+        cycles.slice(0, 5).map((c, i) => "Loop " + (i + 1) + ": " + c.join(" -> ")).join("\\n\\n");
+    }
+  });
+
+  document.getElementById("ai-btn-hotspots").addEventListener("click", () => {
+    const out = document.getElementById("ai-output");
+    const topCoupled = metrics.slice().sort((a,b) => (b.fanIn + b.fanOut) - (a.fanIn + a.fanOut)).slice(0, 5);
+    out.textContent = "Top 5 Highly Coupled Modules (Refactoring candidates):\\n\\n" +
+      topCoupled.map(m => "• " + m.filePath + "\\n  Fan-In: " + m.fanIn + " | Fan-Out: " + m.fanOut + " | Instability: " + m.instability).join("\\n\\n");
+  });
+
+  // Initial initialization
+  rebuildActiveGraph();
   render();
 
 })();

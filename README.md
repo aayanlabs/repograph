@@ -1,58 +1,96 @@
-# RepoGraph by aayanlabs
+# RepoGraph 2.0 by aayanlabs
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.5.0-brightgreen.svg)](https://nodejs.org/)
 [![pnpm](https://img.shields.io/badge/pnpm-workspace-orange.svg)](https://pnpm.io/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
-[![Build & Test](https://img.shields.io/badge/tests-24%20passed-success.svg)](#development)
+[![Build & Test](https://img.shields.io/badge/tests-35%20passed-success.svg)](#development--testing)
 
-**RepoGraph by aayanlabs** is a local-first, zero-cloud semantic codebase graph built specifically for AI coding agents and developers. It indexes repository source code into a structured, SQLite-powered graph model, enabling AI agents to query symbols, dependencies, impact paths, and circular imports instantly without scanning entire files or burning LLM context windows.
+**RepoGraph 2.0** is a local-first codebase intelligence platform and semantic code graph for developers and AI coding agents. It indexes software repositories into a versioned SQLite (`node:sqlite` + FTS5) graph with two-pass cross-file symbol resolution, module coupling metrics, blast-radius analysis, an interactive 5-mode graph dashboard, and an expanded Model Context Protocol (MCP) server.
 
 > **Copyright (c) 2026 aayanlabs** — Released under the MIT License.
 
 ---
 
-## 🚀 Features
+## Why RepoGraph?
 
-- **Local-First & Fast**: Uses native Node.js SQLite (`node:sqlite`) with WAL mode, FTS5 full-text indexing, and Degree Centrality scoring. Zero external cloud APIs.
-- **Multi-Language AST Parsing**:
-  - **TypeScript / TSX / JavaScript / JSX**: Powered by `tree-sitter`.
-  - **Python (`.py`) & Go (`.go`)**: Regex-based fallback AST parser for functions, classes, structs, interfaces, methods, imports, and inheritance.
-- **Interactive Web UI Dashboard**: Run `repograph ui` to launch a local browser-based force-directed graph dashboard with live search, zoom, pan, and node inspection.
-- **Model Context Protocol (MCP) Server**: Native stdio MCP server integration so AI assistants (Claude, Antigravity, Cursor, etc.) can query code context autonomously.
-- **Graph Traversal Engines**:
-  - **Shortest Path Finder**: Breadth-First Search (BFS) call/import paths between symbols or files.
-  - **Cycle Detector**: Depth-First Search (DFS) circular import & dependency loop finder.
-  - **Multi-Hop Impact Analysis**: Trace direct and indirect downstream dependents.
-  - **Graph Exporter**: Export code graphs to standard JSON or GraphML format.
-- **Real-Time File Watcher**: `repograph watch` continuously syncs incremental graph updates as you edit files.
+Understanding large repositories shouldn't require grepping blindly or burning LLM context windows reading dozens of files:
+
+- **Architectural Clarity**: Explore repository structure, directory clusters, dependency density, and circular imports visually.
+- **Change Impact & Blast Radius**: Trace multi-hop downstream callers and importers with risk scoring before editing shared symbols.
+- **Cross-File Symbol Resolution**: Two-pass indexing resolves named/default/namespace imports, cross-file function calls, and class/interface inheritance (`static` and `inferred` confidence).
+- **Coupling & Technical Debt**: Compute fan-in, fan-out, and Martin instability index ($I = \text{FanOut} / (\text{FanIn} + \text{FanOut})$) across every module.
+- **Zero-Cloud by Default**: Runs 100% locally with `node:sqlite`. External AI providers are completely optional and never receive source code unless explicitly configured.
 
 ---
 
-## 📦 Package Architecture
+## Five Graph Visualization Modes
 
-RepoGraph is built as a clean TypeScript monorepo managed with `pnpm`:
+Launch the self-contained dashboard with `repograph ui`:
 
+1. **Architecture View (Default)** — Directory-clustered overview with collapsible folder filtering, convex cluster hulls, dependency density, and progressive disclosure.
+2. **Dependency View** — Directional import/dependency graph highlighting incoming/outgoing relationships, circular dependency loops, and isolated/coupled modules.
+3. **Symbol View** — Inspect functions, classes, methods, interfaces, types, and their call/inheritance/containment relationships.
+4. **Impact Analysis View** — Select any file or symbol to visualize its multi-hop downstream blast radius, risk score, and affected files.
+5. **Codebase Map** — Squarified treemap sized by file bytes and colored by language with click-to-drill navigation.
+
+**Interactive Controls**:
+- **3 Layout Algorithms**: Directory Clustered, Layered DAG, and Concentric Radial.
+- **Instant Search Highlighting**: Press `/` or `Ctrl+K` to highlight matching nodes without rebuilding the graph.
+- **Keyboard Shortcuts**: `1`–`5` switch modes, `F` fit to screen, `H` toggle cluster hulls, `L` toggle labels, `Esc` clear selection.
+- **Contextual Inspector & Minimap**: View module metrics, incoming/outgoing edges, blast radius, and grounded AI insights.
+
+### Screenshots
+
+#### Architecture View
+![RepoGraph Architecture View](docs/screenshots/architecture.png)
+
+#### Dependency View
+![RepoGraph Dependency View](docs/screenshots/dependency.png)
+
+#### Symbol View & Codebase Map
+| Symbol View | Codebase Map |
+| --- | --- |
+| ![RepoGraph Symbol View](docs/screenshots/symbol.png) | ![RepoGraph Codebase Map](docs/screenshots/codebase-map.png) |
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Repo["Repository Files"] --> Scanner["Scanner (.gitignore aware)"]
+  Scanner --> Pass1["Pass 1: Parser (Tree-sitter / Regex Fallback)"]
+  Pass1 --> Storage["SQLite GraphStore (FTS5 + symbols_index)"]
+  Storage --> Pass2["Pass 2: Cross-File Resolver"]
+  Pass2 --> Storage
+  Storage --> CLI["CLI (repograph)"]
+  Storage --> MCP["MCP Server (@repograph/mcp)"]
+  Storage --> UI["5-Mode HTML Dashboard"]
+  Storage --> AI["Optional Grounded AI Layer"]
 ```
+
+### Package Structure
+
+```text
 RepoGraph/
 ├── packages/
-│   ├── core/         # Parsing, SQLite storage (FTS5), scanner, indexing, graph algorithms, visualizer
-│   ├── cli/          # Commander-based CLI executable (`repograph`)
+│   ├── core/         # Scanner, parser, 2-pass indexer, SQLite GraphStore, retrieval, AI, visualizer
+│   ├── cli/          # Commander CLI (`repograph`)
 │   └── mcp/          # Model Context Protocol (MCP) stdio server
-├── benchmarks/       # Reproducible indexing & query performance benchmark suite
+├── docs/
+│   ├── architecture.md
+│   └── SKILL.md      # Agent skill instructions for AI coding assistants
+├── benchmarks/       # Reproducible indexing & query benchmark suite
 └── tests/            # Integration & cross-package test suite
 ```
 
 ---
 
-## ⚙️ Prerequisites & Installation
+## Prerequisites & Installation
 
-### Requirements
-
-- **Node.js**: `>= 22.5.0` (requires native `node:sqlite`)
+- **Node.js**: `>= 22.5.0` (uses native `node:sqlite`)
 - **pnpm**: `>= 10.0.0`
-
-### Clone & Install
 
 ```bash
 git clone https://github.com/aayanlabs/repograph.git
@@ -61,7 +99,7 @@ pnpm install
 pnpm build
 ```
 
-Link CLI globally (optional):
+Optional global CLI link:
 
 ```bash
 cd packages/cli
@@ -70,54 +108,38 @@ npm link
 
 ---
 
-## 📖 CLI Usage & Commands
-
-Run `repograph` in any repository:
+## CLI Usage & Commands
 
 ```bash
 repograph <command> [options]
 ```
 
-| Command            | Description                                           | Example                              |
-| ------------------ | ----------------------------------------------------- | ------------------------------------ |
-| `init [path]`      | Index a repository into `.repograph/graph.db`         | `repograph init .`                   |
-| `update [path]`    | Incrementally update index for modified files         | `repograph update`                   |
-| `status [path]`    | Display graph statistics (files, nodes, edges)        | `repograph status`                   |
-| `search <query>`   | Search symbols by name, path, or signature using FTS5 | `repograph search UserService`       |
-| `context <task>`   | Retrieve ranked code context for a coding task        | `repograph context "fix login auth"` |
-| `deps <target>`    | List direct outgoing dependencies                     | `repograph deps src/auth.ts`         |
-| `impact <target>`  | List multi-hop downstream dependents                  | `repograph impact src/types.ts`      |
-| `path <src> <dst>` | Find shortest call/import path between symbols/files  | `repograph path User Auth`           |
-| `cycles`           | Find circular import loops across files               | `repograph cycles`                   |
-| `export [options]` | Export repository graph in JSON or GraphML format     | `repograph export --format graphml`  |
-| `watch [path]`     | Watch directory and incrementally index on file save  | `repograph watch`                    |
-| `ui [path]`        | Launch interactive graph dashboard web server         | `repograph ui --port 3333`           |
-| `mcp [path]`       | Start MCP server over stdio for AI tools              | `repograph mcp`                      |
+| Command              | Description                                                      | Example                                |
+| -------------------- | ---------------------------------------------------------------- | -------------------------------------- |
+| `init [path]`        | Index a repository into `.repograph/graph.db`                    | `repograph init .`                     |
+| `update [path]`      | Incrementally update index for modified files                    | `repograph update`                     |
+| `status [path]`      | Display graph statistics (files, nodes, edges)                   | `repograph status`                     |
+| `overview`           | Show architecture summary, cycle warnings, and coupled modules   | `repograph overview`                   |
+| `metrics [target]`   | Show fan-in, fan-out, and Martin instability index per module    | `repograph metrics`                    |
+| `search <query>`     | Search symbols by name, path, or signature using FTS5            | `repograph search UserService`         |
+| `context <task>`     | Retrieve ranked code context for a coding task                   | `repograph context "fix login auth"`   |
+| `deps <target>`      | List direct outgoing dependencies                                | `repograph deps src/auth.ts`           |
+| `impact <target>`    | List multi-hop downstream dependents                             | `repograph impact src/types.ts`        |
+| `path <src> <dst>`   | Find shortest call/import path between symbols or files          | `repograph path User Auth`             |
+| `cycles`             | Find circular import loops across files                          | `repograph cycles`                     |
+| `export [options]`   | Export repository graph in JSON or GraphML format                | `repograph export --format graphml`    |
+| `watch [path]`       | Watch directory and incrementally index on file save             | `repograph watch`                      |
+| `ui [path]`          | Launch the 5-mode interactive graph dashboard                    | `repograph ui --port 3333`             |
+| `ai <query>`         | Query the code graph using grounded natural language             | `repograph ai "find circular deps"`    |
+| `mcp [path]`         | Start the MCP server over stdio for AI coding agents             | `repograph mcp`                        |
 
 ---
 
-## 🌐 Interactive Web UI Dashboard
+## Model Context Protocol (MCP) Integration
 
-Run `repograph ui` in your project directory:
+RepoGraph connects seamlessly with AI coding assistants (Claude Desktop, Antigravity, Cursor, Windsurf). See [docs/SKILL.md](docs/SKILL.md) for agent workflow guidance.
 
-```bash
-repograph ui --port 3333
-```
-
-Open `http://localhost:3333` in your browser to inspect your codebase visually:
-
-- **Canvas Graph View**: Interactive force-directed network rendering.
-- **Node Color Coding**: Symbol kinds (`class`, `function`, `interface`, `file`, etc.).
-- **Live Search & Filter**: Real-time symbol search highlighting.
-- **Symbol Inspector**: Click any node to view incoming/outgoing relationships and source locations.
-
----
-
-## 🤖 Model Context Protocol (MCP) Integration
-
-RepoGraph seamlessly connects with AI assistants (Claude Desktop, Antigravity, Cursor, Windsurf).
-
-### MCP Configuration Example (`claude_desktop_config.json`)
+### MCP Configuration Example
 
 ```json
 {
@@ -132,45 +154,66 @@ RepoGraph seamlessly connects with AI assistants (Claude Desktop, Antigravity, C
 
 ### Exposed MCP Tools
 
-- `repo_search`: Lexical & degree-weighted symbol search.
-- `repo_context`: Retrieve ranked, contextually relevant code snippets for tasks.
-- `repo_symbol`: Get complete metadata and source location for a symbol.
-- `repo_dependencies`: Find outgoing dependencies of a symbol/file.
-- `repo_dependents`: Find incoming dependents of a symbol/file.
-- `repo_impact`: Multi-hop downstream impact analysis.
-- `repo_path`: Shortest relationship path between two symbols/files.
-- `repo_cycles`: Detect circular dependency loops.
-- `repo_export`: Export graph data in JSON or GraphML formats.
+| Tool                     | Description                                                                   |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| `get_repository_overview`| High-level stats, language breakdown, cycles, and top coupled modules         |
+| `explain_architecture`   | Grounded architectural summary from actual graph metrics                      |
+| `search_symbols`         | Search symbols by name, path, or signature with optional `kind` filter        |
+| `get_dependencies`       | Direct outgoing dependencies of a file or symbol                              |
+| `get_dependents`         | Direct incoming dependents of a file or symbol                                |
+| `get_file_relationships` | Combined incoming, outgoing, and module metrics for a file                    |
+| `analyze_impact`         | Structured blast radius report with risk score and causal paths               |
+| `get_relevant_context`   | Ranked code snippets and relationships for a task                             |
+| `find_cycles`            | Detect circular dependency loops                                              |
+| `get_module_metrics`     | Fan-in, fan-out, and instability metrics across modules                       |
+
+*Backward-compatible legacy aliases (`repo_search`, `repo_context`, `repo_symbol`, `repo_dependencies`, `repo_dependents`, `repo_impact`, `repo_path`, `repo_cycles`, `repo_export`) remain fully supported.*
 
 ---
 
-## 🛠️ Development & Testing
+## Optional AI Configuration
 
-Run full verification suite:
+By default, `createAiProvider()` uses `MockAiProvider` (100% offline, grounded in graph metrics and SQLite queries). To enable an external LLM provider with explicit consent, configure environment variables:
+
+- **OpenAI-compatible**: `OPENAI_API_KEY` (optional `OPENAI_BASE_URL`, `OPENAI_MODEL`)
+- **Anthropic-compatible**: `ANTHROPIC_API_KEY` (optional `ANTHROPIC_MODEL`)
+- **Local Ollama**: `OLLAMA_HOST` (optional `OLLAMA_MODEL`)
+
+---
+
+## Performance Benchmarks
+
+Measured on synthetic TypeScript repositories (Windows, Node.js v24.18.0, `node:sqlite`):
+
+| Repository Size | Index Time | Search (`FTS5`) | Context Retrieval | Impact Traversal | Module Metrics |
+| --------------- | ---------- | --------------- | ----------------- | ---------------- | -------------- |
+| **100 files**   | 845 ms     | 0.54 ms         | 0.61 ms           | 0.13 ms          | 1.13 ms        |
+| **1,000 files** | 13,512 ms  | 3.23 ms         | 2.07 ms           | 0.14 ms          | 11.81 ms       |
+
+---
+
+## Development & Testing
 
 ```bash
-# Run unit & integration test suite (24 tests)
+# Build all workspace packages
+pnpm build
+
+# Run full unit & integration test suite (12 files, 35 tests)
 pnpm test
 
 # Run TypeScript typechecking across monorepo
 pnpm typecheck
 
-# Run ESLint check
+# Run ESLint check (0 warnings allowed)
 pnpm lint
 
-# Run Prettier code format check
-pnpm format:check
-
-# Auto-format all files
-pnpm format
-
-# Run performance benchmarks
+# Run benchmark test
 pnpm --filter benchmarks test
 ```
 
 ---
 
-## 📜 License & Copyright
+## License & Copyright
 
 **RepoGraph by aayanlabs** is licensed under the [MIT License](LICENSE).
 

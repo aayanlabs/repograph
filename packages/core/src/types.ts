@@ -15,6 +15,7 @@ export type SourceLanguage =
 export type NodeKind =
   | "file"
   | "directory"
+  | "package"
   | "function"
   | "class"
   | "method"
@@ -29,6 +30,7 @@ export type NodeKind =
 export type EdgeKind =
   | "imports"
   | "exports"
+  | "re_exports"
   | "contains"
   | "calls"
   | "extends"
@@ -74,10 +76,45 @@ export interface GraphEdge {
   metadata: Record<string, string> | null;
 }
 
+export interface ExportedSymbol {
+  name: string;
+  filePath: string;
+  nodeId: string;
+  kind: NodeKind;
+  isExported: boolean;
+  isDefault: boolean;
+  signature?: string | null;
+}
+
+export interface NamedImport {
+  specifier: string;
+  importedName: string;
+  localName: string;
+  isDefault: boolean;
+  line: number;
+}
+
+export interface UnresolvedCall {
+  callerSymbolId?: string;
+  callName: string;
+  line: number;
+  column: number;
+}
+
+export interface UnresolvedInheritance {
+  childSymbolId: string;
+  parentName: string;
+  kind: "extends" | "implements";
+}
+
 export interface ParsedFile {
   symbols: GraphNode[];
   edges: GraphEdge[];
   imports: Array<{ specifier: string; line: number }>;
+  namedImports?: NamedImport[];
+  exportedSymbols?: ExportedSymbol[];
+  unresolvedCalls?: UnresolvedCall[];
+  unresolvedInheritance?: UnresolvedInheritance[];
   parseError: string | null;
 }
 
@@ -99,6 +136,7 @@ export interface IndexSummary {
   indexedFiles: number;
   skippedFiles: number;
   removedFiles: number;
+  crossFileEdgesResolved?: number;
   parseErrors: Array<{ path: string; message: string }>;
   durationMs: number;
 }
@@ -115,4 +153,62 @@ export interface ContextResult extends SearchResult {
     kind: EdgeKind;
     node: GraphNode;
   }>;
+}
+
+export interface ImpactNode {
+  node: GraphNode;
+  depth: number;
+  reason: string;
+  confidence: "static" | "inferred";
+  via: string[];
+}
+
+export interface ImpactReport {
+  target: GraphNode;
+  directDependents: ImpactNode[];
+  indirectDependents: ImpactNode[];
+  totalAffected: number;
+  depth: number;
+  riskScore: "low" | "medium" | "high" | "critical";
+  affectedFiles: string[];
+}
+
+export interface ModuleMetrics {
+  filePath: string;
+  fanIn: number;
+  fanOut: number;
+  instability: number;
+  symbolCount: number;
+  sizeBytes: number;
+  language: SourceLanguage;
+}
+
+export type GraphVisualizationMode =
+  | "architecture"
+  | "dependency"
+  | "symbol"
+  | "impact"
+  | "codebase_map";
+
+export interface ViewNodeData {
+  id: string;
+  kind: NodeKind;
+  name: string;
+  filePath: string;
+  line?: number;
+  signature?: string | null;
+  size?: number;
+  lang?: string;
+  fanIn?: number;
+  fanOut?: number;
+  depth?: number;
+  impactReason?: string;
+  cluster?: string;
+}
+
+export interface ViewEdgeData {
+  source: string;
+  target: string;
+  kind: EdgeKind;
+  confidence?: "static" | "inferred";
 }

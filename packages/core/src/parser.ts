@@ -1,7 +1,17 @@
 import { createRequire } from "node:module";
 
 import { fileNodeId, symbolNodeId } from "./ids.js";
-import type { GraphEdge, GraphNode, ParsedFile, RepositoryFile, SourcePosition } from "./types.js";
+import type {
+  ExportedSymbol,
+  GraphEdge,
+  GraphNode,
+  NamedImport,
+  ParsedFile,
+  RepositoryFile,
+  SourcePosition,
+  UnresolvedCall,
+  UnresolvedInheritance,
+} from "./types.js";
 
 interface SyntaxNode {
   type: string;
@@ -51,6 +61,10 @@ export function parseSource(file: RepositoryFile, source: string): ParsedFile {
     const symbols: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     const imports: Array<{ specifier: string; line: number }> = [];
+    const namedImports: NamedImport[] = [];
+    const exportedSymbols: ExportedSymbol[] = [];
+    const unresolvedCalls: UnresolvedCall[] = [];
+    const unresolvedInheritance: UnresolvedInheritance[] = [];
     const symbolByName = new Map<string, GraphNode>();
     const fileId = fileNodeId(file.path);
 
@@ -61,25 +75,43 @@ export function parseSource(file: RepositoryFile, source: string): ParsedFile {
         const specifier = importSpecifier(node.text);
         if (specifier) {
           imports.push({ specifier, line: line.line });
+          const parsedNamed = extractNamedImports(node.text, line.line);
+          namedImports.push(...parsedNamed);
         }
       }
 
       const extracted = extractSymbol(node, file, parent);
       if (node.type === "call_expression") {
         const calledName = callTargetName(node);
-        const target = calledName ? symbolByName.get(calledName) : undefined;
-        if (target) {
-          edges.push({
-            sourceId: currentEnclosingSymbolId(parent, file, symbolByName) ?? fileId,
-            targetId: target.id,
-            kind: "calls",
-            metadata: null,
-          });
+        if (calledName) {
+          const target = symbolByName.get(calledName);
+          const callerId = currentEnclosingSymbolId(parent, file, symbolByName) ?? fileId;
+          if (target) {
+            edges.push({
+              sourceId: callerId,
+              targetId: target.id,
+              kind: "calls",
+              metadata: { confidence: "static", callName: calledName },
+            });
+          } else {
+            unresolvedCalls.push({
+              callerSymbolId: callerId,
+              callName: calledName,
+              line: line.line,
+              column: line.column,
+            });
+          }
         }
       }
 
       if (extracted && (extracted.kind === "class" || extracted.kind === "interface")) {
-        const inheritance = extractInheritance(node, file, extracted, symbolByName);
+        const inheritance = extractInheritance(
+          node,
+          file,
+          extracted,
+          symbolByName,
+          unresolvedInheritance,
+        );
         edges.push(...inheritance);
       }
 
@@ -106,6 +138,20 @@ export function parseSource(file: RepositoryFile, source: string): ParsedFile {
           metadata: null,
         });
       }
+
+      const isExported = checkIsExported(node, parent);
+      const isDefault = checkIsDefaultExport(node, parent);
+      if (isExported || isDefault) {
+        exportedSymbols.push({
+          name: extracted.name,
+          filePath: file.path,
+          nodeId: extracted.id,
+          kind: extracted.kind,
+          isExported: true,
+          isDefault,
+          signature: extracted.signature,
+        });
+      }
     });
 
     const rootHasError =
@@ -117,6 +163,10 @@ export function parseSource(file: RepositoryFile, source: string): ParsedFile {
       symbols: deduplicateNodes(symbols),
       edges: deduplicateEdges(edges),
       imports: deduplicateImports(imports),
+      namedImports,
+      exportedSymbols,
+      unresolvedCalls,
+      unresolvedInheritance,
       parseError: rootHasError ? "Syntax errors detected" : null,
     };
   } catch {
@@ -139,6 +189,18 @@ function languageForFile(file: RepositoryFile): unknown {
     default:
       throw new Error(`Unsupported parser language for ${file.path}`);
   }
+}
+
+function checkIsExported(node: SyntaxNode, parent: SyntaxNode | null): boolean {
+  if (parent?.type === "export_statement") return true;
+  if (node.text.startsWith("export ")) return true;
+  return false;
+}
+
+function checkIsDefaultExport(node: SyntaxNode, parent: SyntaxNode | null): boolean {
+  if (parent?.text.includes("export default")) return true;
+  if (node.text.startsWith("export default")) return true;
+  return false;
 }
 
 function extractSymbol(
@@ -240,11 +302,75 @@ function importSpecifier(text: string): string | null {
   return match?.[1] ?? null;
 }
 
+export function extractNamedImports(text: string, line: number): NamedImport[] {
+  const results: NamedImport[] = [];
+  const specifier = importSpecifier(text);
+  if (!specifier) return results;
+
+  // 1. Check default import: import Foo from "..."
+  const defaultMatch = text.match(/^\s*import\s+([A-Za-z_$][\w$]*)\s+from/);
+  if (defaultMatch?.[1]) {
+    results.push({
+      specifier,
+      importedName: "default",
+      localName: defaultMatch[1],
+      isDefault: true,
+      line,
+    });
+  }
+
+  // 2. Check namespace import: import * as Foo from "..."
+  const namespaceMatch = text.match(/\*\s+as\s+([A-Za-z_$][\w$]*)/);
+  if (namespaceMatch?.[1]) {
+    results.push({
+      specifier,
+      importedName: "*",
+      localName: namespaceMatch[1],
+      isDefault: false,
+      line,
+    });
+  }
+
+  // 3. Check named imports: import { A, B as C } from "..." or export { A } from "..."
+  const namedMatch = text.match(/\{([\s\S]*?)\}/);
+  if (namedMatch?.[1]) {
+    const parts = namedMatch[1].split(",");
+    for (const part of parts) {
+      const clean = part.replace(/\btype\s+/, "").trim();
+      if (!clean) continue;
+      const asMatch = clean.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/);
+      if (asMatch?.[1] && asMatch[2]) {
+        results.push({
+          specifier,
+          importedName: asMatch[1],
+          localName: asMatch[2],
+          isDefault: asMatch[1] === "default",
+          line,
+        });
+      } else {
+        const directName = clean.match(/^([A-Za-z_$][\w$]*)$/)?.[1];
+        if (directName) {
+          results.push({
+            specifier,
+            importedName: directName,
+            localName: directName,
+            isDefault: false,
+            line,
+          });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
 function extractInheritance(
   node: SyntaxNode,
   file: RepositoryFile,
   sourceSymbol: GraphNode,
   symbolByName: Map<string, GraphNode>,
+  unresolved?: UnresolvedInheritance[],
 ): GraphEdge[] {
   const edges: GraphEdge[] = [];
   const text = node.text;
@@ -258,7 +384,13 @@ function extractInheritance(
         sourceId: sourceSymbol.id,
         targetId: target.id,
         kind: "extends",
-        metadata: null,
+        metadata: { confidence: "static" },
+      });
+    } else if (unresolved) {
+      unresolved.push({
+        childSymbolId: sourceSymbol.id,
+        parentName: targetName,
+        kind: "extends",
       });
     }
   }
@@ -272,7 +404,13 @@ function extractInheritance(
         sourceId: sourceSymbol.id,
         targetId: target.id,
         kind: "implements",
-        metadata: null,
+        metadata: { confidence: "static" },
+      });
+    } else if (unresolved) {
+      unresolved.push({
+        childSymbolId: sourceSymbol.id,
+        parentName: targetName,
+        kind: "implements",
       });
     }
   }
@@ -369,7 +507,7 @@ function deduplicateImports(
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Regex-based fallback parser for Python and Go                              */
+/*  Regex-based fallback parser for Python, Go, and environments without tree-sitter */
 /* -------------------------------------------------------------------------- */
 
 const PYTHON_PATTERNS: Array<{ regex: RegExp; kind: GraphNode["kind"] }> = [
@@ -378,8 +516,6 @@ const PYTHON_PATTERNS: Array<{ regex: RegExp; kind: GraphNode["kind"] }> = [
   { regex: /^ {4}def\s+([A-Za-z_]\w*)\s*\(/gm, kind: "method" },
   { regex: /^([A-Z_][A-Z0-9_]*)\s*=/gm, kind: "variable" },
 ];
-
-const PYTHON_IMPORT_PATTERNS = [/^\s*import\s+(\S+)/gm, /^\s*from\s+(\S+)\s+import/gm];
 
 const GO_PATTERNS: Array<{ regex: RegExp; kind: GraphNode["kind"] }> = [
   { regex: /^func\s+([A-Za-z_]\w*)\s*\(/gm, kind: "function" },
@@ -398,13 +534,16 @@ const JS_TS_PATTERNS: Array<{ regex: RegExp; kind: GraphNode["kind"] }> = [
   { regex: /^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/gm, kind: "variable" },
 ];
 
-const GO_IMPORT_PATTERN = /^\s*"([^"]+)"/gm;
-const JS_TS_IMPORT_PATTERN = /\bfrom\s+["']([^"']+)["']/g;
+const GO_IMPORT_PATTERN = /^\s*(?:[A-Za-z_]\w*\s+)?"([^"]+)"/gm;
 
 function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
   const symbols: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const imports: Array<{ specifier: string; line: number }> = [];
+  const namedImports: NamedImport[] = [];
+  const exportedSymbols: ExportedSymbol[] = [];
+  const unresolvedCalls: UnresolvedCall[] = [];
+  const unresolvedInheritance: UnresolvedInheritance[] = [];
   const fileId = fileNodeId(file.path);
 
   const isPython = file.language === "python";
@@ -413,7 +552,6 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
 
   // Extract symbols
   for (const { regex, kind } of patterns) {
-    // Reset regex state for each use
     const pattern = new RegExp(regex.source, regex.flags);
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(source)) !== null) {
@@ -424,6 +562,13 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
       const lineEnd = source.indexOf("\n", match.index);
       const signatureLine =
         lineEnd === -1 ? source.substring(match.index) : source.substring(match.index, lineEnd);
+
+      const isExported = isPython
+        ? !name.startsWith("_")
+        : isGo
+          ? /^[A-Z]/.test(name)
+          : signatureLine.includes("export ");
+      const isDefault = !isPython && !isGo && signatureLine.includes("export default");
 
       const node: GraphNode = {
         id: symbolNodeId(kind, file.path, name, lineNumber, col),
@@ -442,24 +587,71 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
         kind: "contains",
         metadata: null,
       });
+
+      if (isExported || isDefault) {
+        exportedSymbols.push({
+          name: node.name,
+          filePath: file.path,
+          nodeId: node.id,
+          kind: node.kind,
+          isExported: true,
+          isDefault,
+          signature: node.signature,
+        });
+      }
     }
   }
 
   // Extract imports
   if (isPython) {
-    for (const importPattern of PYTHON_IMPORT_PATTERNS) {
-      const pattern = new RegExp(importPattern.source, importPattern.flags);
-      let match: RegExpExecArray | null;
-      while ((match = pattern.exec(source)) !== null) {
-        const specifier = match[1];
-        if (specifier) {
-          const lineNumber = source.substring(0, match.index).split("\n").length;
-          imports.push({ specifier, line: lineNumber });
+    // 1. import os, sys
+    const simpleImportRegex = /^\s*import\s+([^\n]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = simpleImportRegex.exec(source)) !== null) {
+      const raw = match[1];
+      if (raw) {
+        const lineNumber = source.substring(0, match.index).split("\n").length;
+        for (const item of raw.split(",")) {
+          const specifier = item.trim().split(/\s+as\s+/)[0]?.trim();
+          if (specifier) {
+            imports.push({ specifier, line: lineNumber });
+            namedImports.push({
+              specifier,
+              importedName: "*",
+              localName: item.trim().split(/\s+as\s+/)[1]?.trim() ?? specifier,
+              isDefault: false,
+              line: lineNumber,
+            });
+          }
+        }
+      }
+    }
+
+    // 2. from module import a, b as c
+    const fromImportRegex = /^\s*from\s+(\S+)\s+import\s+([^\n]+)/gm;
+    while ((match = fromImportRegex.exec(source)) !== null) {
+      const specifier = match[1];
+      const items = match[2];
+      if (specifier && items) {
+        const lineNumber = source.substring(0, match.index).split("\n").length;
+        imports.push({ specifier, line: lineNumber });
+        for (const item of items.split(",")) {
+          const clean = item.trim();
+          if (!clean) continue;
+          const asParts = clean.split(/\s+as\s+/);
+          const impName = asParts[0]?.trim() ?? clean;
+          const locName = asParts[1]?.trim() ?? impName;
+          namedImports.push({
+            specifier,
+            importedName: impName,
+            localName: locName,
+            isDefault: false,
+            line: lineNumber,
+          });
         }
       }
     }
   } else if (isGo) {
-    // Go: parse import block or single import lines
     const importBlockMatch = source.match(/import\s*\(([\s\S]*?)\)/);
     if (importBlockMatch?.[1]) {
       const blockStart = source.indexOf(importBlockMatch[0]);
@@ -471,34 +663,92 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
         const specifier = match[1];
         if (specifier) {
           const offsetLine = blockContent.substring(0, match.index).split("\n").length;
+          const pkgName = specifier.split("/").pop() ?? specifier;
           imports.push({ specifier, line: blockStartLine + offsetLine - 1 });
+          namedImports.push({
+            specifier,
+            importedName: "*",
+            localName: pkgName,
+            isDefault: false,
+            line: blockStartLine + offsetLine - 1,
+          });
         }
       }
     }
-    // Also handle single-line: import "pkg"
-    const singleImport = /^\s*import\s+"([^"]+)"/gm;
+    const singleImport = /^\s*import\s+(?:[A-Za-z_]\w*\s+)?"([^"]+)"/gm;
     let match: RegExpExecArray | null;
     while ((match = singleImport.exec(source)) !== null) {
       const specifier = match[1];
       if (specifier) {
         const lineNumber = source.substring(0, match.index).split("\n").length;
+        const pkgName = specifier.split("/").pop() ?? specifier;
         imports.push({ specifier, line: lineNumber });
+        namedImports.push({
+          specifier,
+          importedName: "*",
+          localName: pkgName,
+          isDefault: false,
+          line: lineNumber,
+        });
       }
     }
   } else {
     // JS/TS import parsing
-    const pattern = new RegExp(JS_TS_IMPORT_PATTERN.source, JS_TS_IMPORT_PATTERN.flags);
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(source)) !== null) {
-      const specifier = match[1];
-      if (specifier) {
-        const lineNumber = source.substring(0, match.index).split("\n").length;
-        imports.push({ specifier, line: lineNumber });
+    const lines = source.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const lineText = lines[i];
+      if (!lineText) continue;
+      if (lineText.includes("import ") || lineText.includes("export ")) {
+        const specifier = importSpecifier(lineText);
+        if (specifier) {
+          imports.push({ specifier, line: i + 1 });
+          const parsedNamed = extractNamedImports(lineText, i + 1);
+          namedImports.push(...parsedNamed);
+        }
       }
     }
   }
 
-  // Extract class inheritance for Python
+  // Extract function calls
+  const callRegex = /\b([A-Za-z_$][\w$]*)\s*\(/g;
+  let callMatch: RegExpExecArray | null;
+  const keywords = new Set([
+    "if",
+    "for",
+    "while",
+    "switch",
+    "catch",
+    "function",
+    "return",
+    "export",
+    "import",
+    "class",
+    "def",
+    "func",
+  ]);
+  while ((callMatch = callRegex.exec(source)) !== null) {
+    const callName = callMatch[1];
+    if (!callName || keywords.has(callName)) continue;
+    const lineNumber = source.substring(0, callMatch.index).split("\n").length;
+    const targetInFile = symbols.find((s) => s.name === callName);
+    if (targetInFile) {
+      edges.push({
+        sourceId: fileId,
+        targetId: targetInFile.id,
+        kind: "calls",
+        metadata: { confidence: "static", callName },
+      });
+    } else {
+      unresolvedCalls.push({
+        callerSymbolId: fileId,
+        callName,
+        line: lineNumber,
+        column: 1,
+      });
+    }
+  }
+
+  // Extract class inheritance
   if (isPython) {
     const classPattern = /^class\s+([A-Za-z_]\w*)\s*\(([^)]+)\)/gm;
     let match: RegExpExecArray | null;
@@ -521,8 +771,67 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
             sourceId: childNode.id,
             targetId: parentNode.id,
             kind: "extends",
-            metadata: null,
+            metadata: { confidence: "static" },
           });
+        } else {
+          unresolvedInheritance.push({
+            childSymbolId: childNode.id,
+            parentName: cleanParent,
+            kind: "extends",
+          });
+        }
+      }
+    }
+  } else if (!isGo) {
+    // JS/TS inheritance fallback
+    const classPattern =
+      /(?:class)\s+([A-Za-z_$][\w$]*)\s+(?:extends\s+([A-Za-z_$][\w$]*))?(?:\s+implements\s+([A-Za-z_$,\s]+))?/g;
+    let match: RegExpExecArray | null;
+    while ((match = classPattern.exec(source)) !== null) {
+      const childName = match[1];
+      const extendsName = match[2];
+      const implementsNames = match[3];
+      if (!childName) continue;
+      const childNode = symbols.find((s) => s.name === childName && s.kind === "class");
+      if (!childNode) continue;
+
+      if (extendsName) {
+        const parentNode = symbols.find((s) => s.name === extendsName);
+        if (parentNode) {
+          edges.push({
+            sourceId: childNode.id,
+            targetId: parentNode.id,
+            kind: "extends",
+            metadata: { confidence: "static" },
+          });
+        } else {
+          unresolvedInheritance.push({
+            childSymbolId: childNode.id,
+            parentName: extendsName,
+            kind: "extends",
+          });
+        }
+      }
+
+      if (implementsNames) {
+        for (const impl of implementsNames.split(",")) {
+          const cleanImpl = impl.trim();
+          if (!cleanImpl) continue;
+          const parentNode = symbols.find((s) => s.name === cleanImpl);
+          if (parentNode) {
+            edges.push({
+              sourceId: childNode.id,
+              targetId: parentNode.id,
+              kind: "implements",
+              metadata: { confidence: "static" },
+            });
+          } else {
+            unresolvedInheritance.push({
+              childSymbolId: childNode.id,
+              parentName: cleanImpl,
+              kind: "implements",
+            });
+          }
         }
       }
     }
@@ -532,6 +841,10 @@ function parseSourceRegex(file: RepositoryFile, source: string): ParsedFile {
     symbols: deduplicateNodes(symbols),
     edges: deduplicateEdges(edges),
     imports: deduplicateImports(imports),
+    namedImports,
+    exportedSymbols,
+    unresolvedCalls,
+    unresolvedInheritance,
     parseError: null,
   };
 }
