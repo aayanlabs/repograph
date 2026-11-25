@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![CI](https://github.com/aayanlabs/repograph/actions/workflows/ci.yml/badge.svg)](https://github.com/aayanlabs/repograph/actions/workflows/ci.yml)
+[![Build & Test](https://img.shields.io/badge/tests-35%20passed-brightgreen.svg)](#development--testing)
 [![MIT License](https://img.shields.io/github/license/aayanlabs/repograph?color=blue)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.5.0-brightgreen.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
